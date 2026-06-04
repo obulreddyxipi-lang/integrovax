@@ -12,6 +12,17 @@ const app = express();
 app.use(cors());
 app.use(express.json()); // Essential for parsing incoming JSON request bodies from React
 
+app.use((req, res, next) => {
+  const cpiHeaders = {};
+  Object.keys(req.headers).forEach(key => {
+    if (key.startsWith('x-cpi-')) {
+      cpiHeaders[key] = req.headers[key];
+    }
+  });
+  console.log(`[REQUEST] ${req.method} ${req.url} | Custom CPI Headers:`, JSON.stringify(cpiHeaders));
+  next();
+});
+
 // Global Error Catchment Boundaries
 process.on('uncaughtException', err => {
   console.error("🔥 SYSTEM UNCAUGHT CRITICAL EXECUTE EXCEPTION:", err);

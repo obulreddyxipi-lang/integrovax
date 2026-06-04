@@ -11,12 +11,21 @@ function getActiveConfig(envContext) {
   let baseUrl = envContext?.baseUrl || process.env.CPI_BASE_URL || "";
   baseUrl = baseUrl.replace(/\/$/, "");
   
+  // Strip trailing /api/v1 from baseUrl if present to prevent double paths
+  baseUrl = baseUrl.replace(/\/api\/v1$/, "");
+  baseUrl = baseUrl.replace(/\/$/, "");
+  
   // Prevent loopbacks if headers mistakenly point to backend port 40005
   if (!baseUrl || baseUrl.includes("localhost:40005") || envContext?.envName === "RUNTIME") {
     baseUrl = (process.env.CPI_BASE_URL || "").replace(/\/$/, "");
+    baseUrl = baseUrl.replace(/\/api\/v1$/, "");
+    baseUrl = baseUrl.replace(/\/$/, "");
   }
 
-  const authType = envContext?.authType || (process.env.TOKEN_URL ? "oauth" : "none");
+  let authType = envContext?.authType || (process.env.TOKEN_URL ? "oauth" : "none");
+  if (authType === "oauth2") {
+    authType = "oauth";
+  }
   
   return {
     envName: envContext?.envName || "RUNTIME",
@@ -79,22 +88,31 @@ async function getToken(config) {
     logDebug("⚠️ [WARNING] OAuth environment credentials are not configured. Fallback to mock authorization token.");
     return "mock-oauth-token-integrovax-runtime";
   }
-  const res = await axios.post(
-    config.tokenUrl,
-    new URLSearchParams({ grant_type: "client_credentials" }),
-    {
-      auth: {
-        username: config.clientId,
-        password: config.clientSecret
-      },
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json"
+  try {
+    const res = await axios.post(
+      config.tokenUrl,
+      new URLSearchParams({ grant_type: "client_credentials" }),
+      {
+        auth: {
+          username: config.clientId,
+          password: config.clientSecret
+        },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json"
+        }
       }
+    );
+    logDebug("✅ Token Generated Successfully.");
+    return res.data.access_token;
+  } catch (err) {
+    console.error("❌ OAuth Token Handshake Failed:", err.message);
+    if (err.response) {
+      console.error("   Response status:", err.response.status);
+      console.error("   Response data:", JSON.stringify(err.response.data));
     }
-  );
-  logDebug("✅ Token Generated Successfully.");
-  return res.data.access_token;
+    throw err;
+  }
 }
 
 // Get appropriate headers based on authentication type
