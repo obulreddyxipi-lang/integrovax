@@ -1,5 +1,5 @@
 {
-  "name": "cpi-control-tower",
+  "name": "integrovax",
   "private": true,
   "scripts": {
     "backend": "npm --prefix backend run start",
