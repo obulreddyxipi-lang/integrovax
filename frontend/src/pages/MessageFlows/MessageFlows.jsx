@@ -53,6 +53,63 @@ function classifyError(log) {
   return "OTHER";
 }
 
+const MOCK_FLOWS = [
+  {
+    messageGuid: "MSG-9A2F8B10-C3E4-4D2A-B901-523F16E8",
+    correlationId: "CORR-8f192b1a-554281",
+    flowName: "Payment_Integration_Flow",
+    status: "COMPLETED",
+    logStart: new Date(Date.now() - 3600000).toISOString(),
+    logEnd: new Date(Date.now() - 3597000).toISOString(),
+    errorText: ""
+  },
+  {
+    messageGuid: "MSG-7115342B-DDB4-4A1B-9B35-B4B53AA3",
+    correlationId: "CORR-7f289c2b-449102",
+    flowName: "Salesforce_Employee_Sync",
+    status: "FAILED",
+    logStart: new Date(Date.now() - 7200000).toISOString(),
+    logEnd: new Date(Date.now() - 7185000).toISOString(),
+    errorText: "HTTP parent connection timed out after 30000ms. Remote service endpoint at https://api.successfactors.com/odata/v2/User is unreachable."
+  },
+  {
+    messageGuid: "MSG-0E9E8A1B-327B-89CE-18B5-B5D14B85",
+    correlationId: "CORR-6f371a3c-112039",
+    flowName: "Ariba_PurchaseOrder_Router",
+    status: "COMPLETED",
+    logStart: new Date(Date.now() - 14400000).toISOString(),
+    logEnd: new Date(Date.now() - 14399000).toISOString(),
+    errorText: ""
+  },
+  {
+    messageGuid: "MSG-FAFE8DF1-2864-4592-ABD9-D6E3DA82",
+    correlationId: "CORR-5e462d4d-009182",
+    flowName: "ERP_to_SuccessFactors_EmployeeMap",
+    status: "FAILED",
+    logStart: new Date(Date.now() - 28800000).toISOString(),
+    logEnd: new Date(Date.now() - 28798000).toISOString(),
+    errorText: "XSLT Stylesheet compilation error: element <HireDate> in the XML schema mismatch."
+  },
+  {
+    messageGuid: "MSG-8A859E35-2B64-4592-ABD9-D6E3DA82",
+    correlationId: "CORR-4d573e5e-998817",
+    flowName: "Inventory_Update_Listener",
+    status: "COMPLETED",
+    logStart: new Date(Date.now() - 43200000).toISOString(),
+    logEnd: new Date(Date.now() - 43196000).toISOString(),
+    errorText: ""
+  },
+  {
+    messageGuid: "MSG-9753D6FB-CCD7-4AF1-92BB-928B7F8F",
+    correlationId: "CORR-3c684f6f-223344",
+    flowName: "BTP_Log_Exporter",
+    status: "FAILED",
+    logStart: new Date(Date.now() - 86400000).toISOString(),
+    logEnd: new Date(Date.now() - 86399000).toISOString(),
+    errorText: "Authentication Failure: 401 Unauthorized client credentials for OAuth2 server context."
+  }
+];
+
 export default function MessageFlows() {
   const [logs, setLogs] = useState([]);
   const [lastRefresh, setLastRefresh] = useState(null);
@@ -70,10 +127,20 @@ export default function MessageFlows() {
     const load = async () => {
       try {
         const res = await axios.get(`${BASE_URL}/logs`);
-        setLogs(res.data?.data || []);
+        const serverLogs = res.data?.data || [];
+        setLogs(serverLogs);
+        localStorage.setItem("integrovax_logs", JSON.stringify(serverLogs));
         setLastRefresh(new Date());
       } catch (err) {
-        console.error("Error fetching logs:", err.message);
+        console.warn("Backend unavailable, loading local storage logs fallback...", err.message);
+        const saved = localStorage.getItem("integrovax_logs");
+        if (saved) {
+          setLogs(JSON.parse(saved));
+        } else {
+          localStorage.setItem("integrovax_logs", JSON.stringify(MOCK_FLOWS));
+          setLogs(MOCK_FLOWS);
+        }
+        setLastRefresh(new Date());
       }
     };
     load();

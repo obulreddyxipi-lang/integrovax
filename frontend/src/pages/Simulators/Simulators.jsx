@@ -428,6 +428,26 @@ function PayloadSimulator({ history, setHistory, injectTemplate }) {
       time: "Just Now"
     };
     setHistory(prev => [newHist, ...prev.slice(0, 9)]);
+
+    // Append a simulated log entry to global logs storage
+    try {
+      const savedLogs = localStorage.getItem("integrovax_logs");
+      const currentLogs = savedLogs ? JSON.parse(savedLogs) : [];
+      
+      const newLogEntry = {
+        messageGuid: "MSG-" + Math.random().toString(36).substring(2, 10).toUpperCase() + "-" + Math.random().toString(36).substring(2, 6).toUpperCase() + "-SIM",
+        correlationId: "CORR-" + Math.random().toString(36).substring(2, 8).toUpperCase(),
+        flowName: flow || "Simulation_iFlow_Test",
+        status: statusResult === "Error" ? "FAILED" : "COMPLETED",
+        logStart: new Date().toISOString(),
+        logEnd: new Date(Date.now() + 1240).toISOString(),
+        errorText: statusResult === "Error" ? `Simulation error in scenario "${scenarioName}": mapping step validation failed.` : ""
+      };
+      
+      localStorage.setItem("integrovax_logs", JSON.stringify([newLogEntry, ...currentLogs]));
+    } catch (e) {
+      console.warn("Could not save simulated log to local storage:", e);
+    }
   };
 
   const triggerSimulation = () => {
