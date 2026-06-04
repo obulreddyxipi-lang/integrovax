@@ -13,7 +13,7 @@ const TEMPLATES = {
   apiSample: `{\n  "request": {\n    "method": "POST",\n    "url": "https://api.integrovax.com/v1/employees/sync",\n    "headers": {\n      "Content-Type": "application/json",\n      "Authorization": "Bearer token_abc123"\n    },\n    "body": {\n      "syncMode": "Delta",\n      "batchSize": 100\n    }\n  }\n}`
 };
 
-export default function Simulators() {
+export default function Simulators({ activeEnvName = "PRODUCTION", customEnvironments = [] }) {
   const [activeSimulator, setActiveSimulator] = useState("payload"); // payload, transform, groovy, xslt, api, mock
   const [historyList, setHistoryList] = useState([
     { id: 1, type: "Payload Simulator", scenario: "Employee Data Fetch - Success", status: "Success", duration: "1.24s", user: "Admin User", time: "Today, 11:24 AM" },
@@ -198,7 +198,7 @@ export default function Simulators() {
         {activeSimulator === "transform" && <TransformationTools />}
         {activeSimulator === "groovy" && <GroovySimulator />}
         {activeSimulator === "xslt" && <XsltSimulator />}
-        {activeSimulator === "api" && <ApiRequestTesting />}
+        {activeSimulator === "api" && <ApiRequestTesting activeEnvName={activeEnvName} customEnvironments={customEnvironments} />}
         {activeSimulator === "mock" && <MockPayloadGenerator />}
       </div>
     </div>
@@ -208,6 +208,153 @@ export default function Simulators() {
 /* ============================================================================
    A. PAYLOAD SIMULATOR WORKSPACE
    ============================================================================ */
+const getSimulationSteps = (inputPayload, templateKey, scenario) => {
+  const isXml = inputPayload.trim().startsWith("<");
+  
+  // Base headers & properties
+  const baseHeaders = [
+    { key: "Content-Type", value: isXml ? "application/xml" : "application/json" },
+    { key: "CamelHttpPath", value: "/sap/cpi/sync/employees" },
+    { key: "SAP_Sender", value: "S4HANA_ERP" }
+  ];
+  
+  const baseProperties = [
+    { key: "CamelCorrelationId", value: "corr-8f192b1a-" + Math.floor(Math.random()*1000000) },
+    { key: "SAP_MessageType", value: "EmployeeMasterSync" }
+  ];
+
+  // Step 1: Start Message
+  const step1 = {
+    id: "start",
+    name: "Start Message",
+    icon: "Start",
+    status: "Success",
+    body: inputPayload,
+    headers: [...baseHeaders],
+    properties: [...baseProperties],
+    logs: "[INFO] Message processing started.\n[INFO] Initialized Camel exchange successfully."
+  };
+
+  // Step 2: Content Modifier
+  const step2 = {
+    id: "content_modifier",
+    name: "Content Modifier",
+    icon: "Modifier",
+    status: "Success",
+    body: inputPayload,
+    headers: [
+      ...baseHeaders,
+      { key: "SAP_Sender", value: "S4HANA_ERP" },
+      { key: "SAP_Receiver", value: "SuccessFactors" }
+    ],
+    properties: [
+      ...baseProperties,
+      { key: "SAP_MessageProcessingLogID", value: "mpl-" + Math.floor(Math.random()*10000000) },
+      { key: "SAP_LogLevel", value: "Trace" }
+    ],
+    logs: "[INFO] Content Modifier step started.\n[INFO] Set Camel Header 'SAP_Receiver' = 'SuccessFactors'\n[INFO] Set Exchange Property 'SAP_MessageProcessingLogID' successfully."
+  };
+
+  // Step 3: Groovy Script
+  let groovyBody = inputPayload;
+  let groovyLogs = "[INFO] Groovy scripting step started.\n[INFO] Executing processData(message)...";
+  let groovyStatus = "Success";
+  let groovyHeaders = [
+    ...step2.headers,
+    { key: "cpiHeader", value: "ProcessedByGroovy" }
+  ];
+  let groovyProperties = [
+    ...step2.properties,
+    { key: "cpiProperty", value: "Order_" + Date.now() }
+  ];
+
+  groovyLogs += "\n[STDOUT] --- Groovy processing started ---";
+  groovyLogs += "\n[STDOUT] Modified body successfully!";
+
+  const step3 = {
+    id: "groovy",
+    name: "Groovy Script",
+    icon: "Code",
+    status: groovyStatus,
+    body: groovyBody,
+    headers: groovyHeaders,
+    properties: groovyProperties,
+    logs: groovyLogs
+  };
+
+  // Step 4: Converter
+  let convBody = groovyBody;
+  let convHeaders = [...groovyHeaders];
+  let convProperties = [...groovyProperties];
+  let convLogs = "[INFO] Conversion step initialized.";
+  let convStatus = "Success";
+
+  if (scenario === "Employee Data Fetch - Schema Error") {
+    convStatus = "Error";
+    convLogs += "\n[INFO] XML to JSON Converter initialized...";
+    convLogs += "\n[ERROR] Schema validation failed: element <HireDate> is missing or malformed.";
+    convLogs += "\n[ERROR] Processing terminated due to validation errors.";
+  } else {
+    convLogs += "\n[INFO] XML to JSON Converter initialized...";
+    convLogs += "\n[INFO] Parsing XML node tree...";
+    convLogs += "\n[INFO] Generated JSON object successfully.";
+    convLogs += "\n[INFO] Conversion completed in 8ms.";
+    
+    // Converted outputs matching typical template formats
+    if (isXml) {
+      convBody = `{\n  "d": {\n    "results": [\n      {\n        "userId": "sbuchanan",\n        "firstName": "Steven",\n        "lastName": "Buchanan",\n        "title": "Sales Manager",\n        "department": "Sales",\n        "email": "s.buchanan@integrovax.com"\n      }\n    ]\n  }\n}`;
+    } else {
+      convBody = `<?xml version="1.0" encoding="UTF-8"?>\n<Employees>\n  <Employee>\n    <EmployeeID>1001</EmployeeID>\n    <FirstName>Steven</FirstName>\n    <LastName>Buchanan</LastName>\n    <Title>Sales Manager</Title>\n    <City>London</City>\n    <Country>UK</Country>\n    <HireDate>1993-10-17</HireDate>\n  </Employee>\n</Employees>`;
+    }
+    
+    convHeaders = convHeaders.map(h => h.key === "Content-Type" ? { ...h, value: isXml ? "application/json" : "application/xml" } : h);
+  }
+
+  const step4 = {
+    id: "converter",
+    name: isXml ? "XML to JSON" : "JSON to XML",
+    icon: "Convert",
+    status: convStatus,
+    body: convBody,
+    headers: convHeaders,
+    properties: convProperties,
+    logs: convLogs
+  };
+
+  // Step 5: End Message
+  let endBody = convBody;
+  let endHeaders = [...convHeaders];
+  let endProperties = [...convProperties];
+  let endLogs = "[INFO] End step reached.";
+  let endStatus = "Success";
+
+  if (scenario === "Employee Data Fetch - Schema Error") {
+    endStatus = "Error";
+    endBody = `{\n  "status": "error",\n  "errorCode": "SCHEMA_VALIDATION_FAILED",\n  "errorMessage": "Schema validation failed: element <HireDate> is missing or malformed.",\n  "timestamp": "${new Date().toISOString()}"\n}`;
+    endLogs += "\n[ERROR] Message flow terminated with status: 400 Bad Request";
+  } else if (scenario === "Employee Data Fetch - Target Timeout") {
+    endStatus = "Error";
+    endBody = `{\n  "status": "error",\n  "errorCode": "SIM_EXECUTION_FAILED",\n  "errorMessage": "Connection timeout attempting to route to endpoint: https://api.successfactors.com/odata/v2/User",\n  "timestamp": "${new Date().toISOString()}"\n}`;
+    endLogs += "\n[ERROR] Connection timeout attempting to route to endpoint: https://api.successfactors.com/odata/v2/User\n[ERROR] Message flow terminated with status: 504 Gateway Timeout";
+  } else {
+    endHeaders.push({ key: "Content-Length", value: String(endBody.length) });
+    endLogs += "\n[INFO] Message routing completed.\n[SUCCESS] Output payload delivered to endpoint.\n[INFO] CPI transaction completed successfully.";
+  }
+
+  const step5 = {
+    id: "end",
+    name: "End Message",
+    icon: "End",
+    status: endStatus,
+    body: endBody,
+    headers: endHeaders,
+    properties: endProperties,
+    logs: endLogs
+  };
+
+  return [step1, step2, step3, step4, step5];
+};
+
 function PayloadSimulator({ history, setHistory, injectTemplate }) {
   const [flow, setFlow] = useState("Fetch Northwind Employees");
   const [scenario, setScenario] = useState("Employee Data Fetch - Success");
@@ -218,9 +365,23 @@ function PayloadSimulator({ history, setHistory, injectTemplate }) {
   const [simCompleted, setSimCompleted] = useState(false);
   const [simTime, setSimTime] = useState("0.00s");
   const [simStatus, setSimStatus] = useState("Idle"); // Idle, Success, Warning, Error
-  const [responseTab, setResponseTab] = useState("response"); // response, headers
-  const [responseContent, setResponseContent] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  
+  // Interactive Step Debugger State
+  const [selectedStepIdx, setSelectedStepIdx] = useState(0);
+  const [inspectorTab, setInspectorTab] = useState("body"); // body, headers, properties, logs
+  const [activeProcessingStep, setActiveProcessingStep] = useState(-1);
+  
+  // Initialize steps list with default payload
+  const [currentSteps, setCurrentSteps] = useState(() => 
+    getSimulationSteps(TEMPLATES.s4Employee, "XML", "Employee Data Fetch - Success")
+  );
+
+  useEffect(() => {
+    // Sync current steps when input changes
+    setCurrentSteps(getSimulationSteps(payload, payloadType, scenario));
+    setSelectedStepIdx(0);
+  }, [payload, payloadType, scenario]);
 
   useEffect(() => {
     const handleTemplate = (e) => {
@@ -256,44 +417,79 @@ function PayloadSimulator({ history, setHistory, injectTemplate }) {
     }
   };
 
+  const addToHistory = (scenarioName, statusResult) => {
+    const newHist = {
+      id: Date.now(),
+      type: "Payload Simulator",
+      scenario: scenarioName,
+      status: statusResult,
+      duration: "1.24s",
+      user: "Admin User",
+      time: "Just Now"
+    };
+    setHistory(prev => [newHist, ...prev.slice(0, 9)]);
+  };
+
   const triggerSimulation = () => {
     setIsRunning(true);
     setSimCompleted(false);
     setSimStatus("Running");
-    setSimTime("0.00s");
+    setActiveProcessingStep(0);
+    setSelectedStepIdx(0);
 
-    setTimeout(() => {
-      setIsRunning(false);
-      setSimCompleted(true);
-      setSimTime("1.24s");
+    const steps = getSimulationSteps(payload, payloadType, scenario);
+    setCurrentSteps(steps);
 
-      if (scenario.includes("Success")) {
-        setSimStatus("Success");
-        setResponseContent(`{\n  "status": "success",\n  "data": {\n    "employees": [\n      {\n        "employeeId": "1001",\n        "firstName": "Steven",\n        "lastName": "Buchanan",\n        "title": "Sales Manager",\n        "city": "London",\n        "country": "UK",\n        "hireDate": "1993-10-17"\n      }\n    ],\n    "count": 1\n  },\n  "executionTime": "1.24s"\n}`);
-      } else if (scenario.includes("Warning")) {
-        setSimStatus("Warning");
-        setResponseContent(`{\n  "status": "warning",\n  "validationWarnings": [\n    {\n      "field": "City",\n      "message": "City code London lacks international zone format mapping."\n    }\n  ],\n  "data": {\n    "employeeId": "1001",\n    "firstName": "Steven",\n    "lastName": "Buchanan"\n  }\n}`);
+    let currentIdx = 0;
+    const interval = setInterval(() => {
+      currentIdx++;
+      if (currentIdx < 5) {
+        if (steps[currentIdx - 1].status === "Error") {
+          clearInterval(interval);
+          setIsRunning(false);
+          setSimCompleted(true);
+          setSimStatus("Error");
+          setActiveProcessingStep(-1);
+          setSelectedStepIdx(currentIdx - 1);
+          addToHistory(scenario, "Error");
+          
+          window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+            detail: {
+              type: "error",
+              title: "Payload Simulation Failed",
+              desc: `Flow "${flow}" failed at step "${steps[currentIdx - 1].name}"`
+            }
+          }));
+          return;
+        }
+        setActiveProcessingStep(currentIdx);
+        setSelectedStepIdx(currentIdx);
       } else {
-        setSimStatus("Error");
-        setResponseContent(`{\n  "status": "error",\n  "errorCode": "SIM_EXECUTION_FAILED",\n  "errorMessage": "Schema validation failed: element <HireDate> is missing or malformed.",\n  "timestamp": "2026-05-31T15:03:00Z"\n}`);
-      }
+        clearInterval(interval);
+        setIsRunning(false);
+        setSimCompleted(true);
+        const finalStatus = steps[4].status;
+        setSimStatus(finalStatus);
+        setActiveProcessingStep(-1);
+        setSelectedStepIdx(4);
+        addToHistory(scenario, finalStatus);
+        setSimTime("1.24s");
 
-      const newHist = {
-        id: Date.now(),
-        type: "Payload Simulator",
-        scenario: scenario,
-        status: scenario.includes("Success") ? "Success" : scenario.includes("Warning") ? "Warning" : "Error",
-        duration: "1.24s",
-        user: "Admin User",
-        time: "Just Now"
-      };
-      setHistory(prev => [newHist, ...prev.slice(0, 9)]);
-    }, 1500);
+        window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+          detail: {
+            type: finalStatus === "Error" ? "error" : "success",
+            title: finalStatus === "Error" ? "Payload Simulation Failed" : "Payload Simulation Succeeded",
+            desc: `Flow "${flow}" finished processing scenario "${scenario}".`
+          }
+        }));
+      }
+    }, 450);
   };
 
   const downloadResponse = () => {
-    if (!responseContent) return;
-    const blob = new Blob([responseContent], { type: "application/json" });
+    const finalStep = currentSteps[4];
+    if (!finalStep || !finalStep.body) return;
+    const blob = new Blob([finalStep.body], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -303,6 +499,13 @@ function PayloadSimulator({ history, setHistory, injectTemplate }) {
 
   return (
     <div>
+      <style>{`
+        @keyframes pulseNodeBorder {
+          0%, 100% { box-shadow: 0 0 4px rgba(111, 66, 255, 0.2); border-color: rgba(111, 66, 255, 0.4); }
+          50% { box-shadow: 0 0 12px rgba(111, 66, 255, 0.6); border-color: rgba(111, 66, 255, 1); }
+        }
+      `}</style>
+
       {/* A1. CONFIGURATION DROPDOWNS BAR */}
       <div style={styles.controlsBarCard} className="glass-panel">
         <div style={styles.controlGroup}>
@@ -394,121 +597,267 @@ function PayloadSimulator({ history, setHistory, injectTemplate }) {
           </div>
         </div>
 
-        {/* EXECUTION PANEL */}
-        <div style={{ ...styles.paneCard, flex: 1, minWidth: "300px" }} className="glass-panel">
-          <h4 style={styles.paneCardTitle}>Execution</h4>
+        {/* UNIFIED INTERACTIVE CPI PIPELINE & TRACE INSPECTOR PANEL */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px", flex: 2, minWidth: "550px" }}>
           
-          <button
-            onClick={triggerSimulation}
-            disabled={isRunning}
-            style={{
-              ...styles.runSimulationBtn,
-              background: isRunning ? "#E2E8F0" : "linear-gradient(135deg, #0A84FF 0%, #6F42FF 100%)",
-              color: isRunning ? "#94A3B8" : "#FFFFFF"
-            }}
-          >
-            {isRunning ? (
-              <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span className="animate-spin" style={styles.spinner} /> Running Simulation...
-              </span>
-            ) : (
-              <span>▶ Run Simulation</span>
-            )}
-          </button>
-
-          <div style={styles.executionStatusRow}>
-            <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Execution Status</span>
-            <span
-              style={{
-                ...styles.statusPill,
-                backgroundColor: simStatus === "Success" ? "rgba(34,197,94,0.1)" : simStatus === "Warning" ? "rgba(255,138,0,0.1)" : simStatus === "Error" ? "rgba(239,68,68,0.1)" : "rgba(148,163,184,0.1)",
-                color: simStatus === "Success" ? "#22C55E" : simStatus === "Warning" ? "#FF8A00" : simStatus === "Error" ? "#EF4444" : "#64748B"
-              }}
-            >
-              ● {simStatus}
-            </span>
-          </div>
-
-          <div style={styles.durationLogsLink}>
-            <span style={{ fontSize: "11px", color: "#64748B" }}>Completed in {simTime}</span>
-            <a href="#logs" style={styles.viewLogsAnchor}>View Logs</a>
-          </div>
-
-          <div style={styles.timelineList}>
-            <div style={styles.timelineStepRow}>
-              <span style={{ color: simCompleted ? "#22C55E" : "#94A3B8" }}>✓</span>
-              <span style={styles.timelineStepLabel}>Payload Validation</span>
-              <span style={styles.timelineStepTime}>{simCompleted ? "0.18s" : "—"}</span>
-            </div>
-            <div style={styles.timelineStepRow}>
-              <span style={{ color: simCompleted && !scenario.includes("Schema Error") ? "#22C55E" : simCompleted ? "#EF4444" : "#94A3B8" }}>
-                {simCompleted && scenario.includes("Schema Error") ? "✕" : "✓"}
-              </span>
-              <span style={styles.timelineStepLabel}>Schema Validation</span>
-              <span style={styles.timelineStepTime}>{simCompleted ? "0.22s" : "—"}</span>
-            </div>
-            <div style={styles.timelineStepRow}>
-              <span style={{ color: simCompleted && !scenario.includes("Timeout") ? "#22C55E" : simCompleted ? "#EF4444" : "#94A3B8" }}>
-                {simCompleted && scenario.includes("Timeout") ? "✕" : "✓"}
-              </span>
-              <span style={styles.timelineStepLabel}>Mapping Execution</span>
-              <span style={styles.timelineStepTime}>{simCompleted ? "0.61s" : "—"}</span>
-            </div>
-            <div style={styles.timelineStepRow}>
-              <span style={{ color: simCompleted ? "#22C55E" : "#94A3B8" }}>✓</span>
-              <span style={styles.timelineStepLabel}>Script Execution</span>
-              <span style={styles.timelineStepTime}>{simCompleted ? "0.15s" : "—"}</span>
-            </div>
-            <div style={styles.timelineStepRow}>
-              <span style={{ color: simCompleted ? "#22C55E" : "#94A3B8" }}>✓</span>
-              <span style={styles.timelineStepLabel}>Transformation</span>
-              <span style={styles.timelineStepTime}>{simCompleted ? "0.08s" : "—"}</span>
-            </div>
-            <div style={styles.timelineStepRow}>
-              <span style={{ color: simCompleted ? "#22C55E" : "#94A3B8" }}>✓</span>
-              <span style={styles.timelineStepLabel}>Response Generation</span>
-              <span style={styles.timelineStepTime}>{simCompleted ? "0.00s" : "—"}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* SPLIT-SCREEN RESPONSE VIEW */}
-        <div style={{ ...styles.paneCard, flex: 1.2, minWidth: "350px" }} className="glass-panel">
-          <div style={styles.paneCardHeader}>
-            <div style={styles.responseTabs}>
+          {/* SIMULATION RUN CONTROLLER & VISUAL PIPELINE */}
+          <div style={styles.paneCard} className="glass-panel">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+              <h4 style={styles.paneCardTitle}>SAP Integration Flow Simulator Pipeline</h4>
               <button
-                onClick={() => setResponseTab("response")}
-                style={{ ...styles.responseTabBtn, ...(responseTab === "response" ? styles.responseTabBtnActive : {}) }}
+                onClick={triggerSimulation}
+                disabled={isRunning}
+                style={{
+                  ...styles.runSimulationBtn,
+                  width: "180px",
+                  margin: 0,
+                  background: isRunning ? "#E2E8F0" : "linear-gradient(135deg, #0A84FF 0%, #6F42FF 100%)",
+                  color: isRunning ? "#94A3B8" : "#FFFFFF"
+                }}
               >
-                Response
-              </button>
-              <button
-                onClick={() => setResponseTab("headers")}
-                style={{ ...styles.responseTabBtn, ...(responseTab === "headers" ? styles.responseTabBtnActive : {}) }}
-              >
-                Headers
+                {isRunning ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span className="animate-spin" style={styles.spinner} /> Processing...
+                  </span>
+                ) : (
+                  <span>▶ Run CPI Simulator</span>
+                )}
               </button>
             </div>
-            <div style={styles.responseActions}>
-              <button style={styles.miniIconActionBtn} onClick={() => navigator.clipboard.writeText(responseContent)} title="Copy Response">📋</button>
-              <button style={styles.miniIconActionBtn} onClick={downloadResponse} title="Download Result">📥</button>
-              <button style={styles.miniIconActionBtn} title="Full Screen">⛶</button>
+
+            {/* VISUAL IFLOW PIPELINE NODES */}
+            <div style={styles.pipelineContainer}>
+              {currentSteps.map((step, idx) => {
+                const isActive = activeProcessingStep === idx;
+                const isSelected = selectedStepIdx === idx;
+                const isCompleted = simCompleted || (activeProcessingStep > idx);
+                const hasError = step.status === "Error" && (simCompleted || activeProcessingStep >= idx);
+                
+                let borderCol = "#E2E8F0";
+                let bgCol = "#FFFFFF";
+                let textCol = "#475569";
+                
+                if (isSelected) {
+                  borderCol = "#0A84FF";
+                  bgCol = "rgba(10, 132, 255, 0.04)";
+                  textCol = "#0A84FF";
+                } else if (isActive) {
+                  borderCol = "#6F42FF";
+                  bgCol = "rgba(111, 66, 255, 0.04)";
+                  textCol = "#6F42FF";
+                } else if (hasError) {
+                  borderCol = "#EF4444";
+                  bgCol = "rgba(239, 68, 68, 0.02)";
+                  textCol = "#EF4444";
+                } else if (isCompleted) {
+                  borderCol = "#22C55E";
+                  bgCol = "rgba(34, 197, 94, 0.02)";
+                  textCol = "#22C55E";
+                }
+
+                return (
+                  <React.Fragment key={step.id}>
+                    {/* Node Card */}
+                    <div 
+                      onClick={() => setSelectedStepIdx(idx)}
+                      style={{
+                        ...styles.pipelineNode,
+                        borderColor: borderCol,
+                        backgroundColor: bgCol,
+                        color: textCol,
+                        cursor: "pointer",
+                        boxShadow: isSelected ? "0 0 14px rgba(10, 132, 255, 0.15)" : "none",
+                        transform: isSelected ? "scale(1.03)" : "none",
+                        animation: isActive ? "pulseNodeBorder 1s infinite" : "none"
+                      }}
+                    >
+                      <div style={styles.nodeIconWrap}>
+                        {step.icon === "Start" && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M21 12H3M3 12l8-8M3 12l8 8" />
+                          </svg>
+                        )}
+                        {step.icon === "Modifier" && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                            <line x1="9" y1="9" x2="15" y2="15" />
+                            <line x1="15" y1="9" x2="9" y2="15" />
+                          </svg>
+                        )}
+                        {step.icon === "Code" && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polyline points="16 18 22 12 16 6" />
+                            <polyline points="8 6 2 12 8 18" />
+                          </svg>
+                        )}
+                        {step.icon === "Convert" && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M17 1l4 4-4 4" />
+                            <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                            <path d="M7 23l-4-4 4-4" />
+                            <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                          </svg>
+                        )}
+                        {step.icon === "End" && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </div>
+                      <div style={styles.nodeDetails}>
+                        <span style={styles.nodeName}>{step.name}</span>
+                        <span style={{ ...styles.nodeStatusText, color: hasError ? "#EF4444" : isCompleted ? "#22C55E" : isActive ? "#6F42FF" : "#94A3B8" }}>
+                          {hasError ? "✕ Failed" : isCompleted ? "✓ Passed" : isActive ? "● Processing..." : "○ Queue"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Connection Arrow (if not the last step) */}
+                    {idx < 4 && (
+                      <div style={styles.pipelineArrow}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isCompleted && !hasError ? "#22C55E" : hasError ? "#EF4444" : "#CBD5E1"} strokeWidth="2.5">
+                          <line x1="2" y1="12" x2="20" y2="12" />
+                          <polyline points="14 6 20 12 14 18" />
+                        </svg>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", color: "#64748B" }}>
+              <span>Click on any active step above to inspect the message state at that point.</span>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <span>Execution Status: <strong style={{ color: simStatus === "Success" ? "#22C55E" : simStatus === "Error" ? "#EF4444" : "#64748B" }}>{simStatus}</strong></span>
+                <span>Time: <strong>{simTime}</strong></span>
+              </div>
             </div>
           </div>
 
-          <textarea
-            style={{ ...styles.roundedTextarea, height: "238px", backgroundColor: "#0B1930", color: "#9DF9FF", fontFamily: "monospace", border: "1px solid #1E293B" }}
-            value={responseTab === "response" ? responseContent : `{\n  "Content-Type": "application/json",\n  "Content-Length": "${responseContent.length}",\n  "Server": "IntegrovaX-Simulation-Engine/v1.0",\n  "X-SAP-BTP-CorrelationID": "512a88a1-c24a-4ff1-b91d"\n}`}
-            readOnly
-            placeholder="Simulation output payload will display here after execution..."
-          />
+          {/* TRACE INSPECTOR PANEL */}
+          <div style={styles.inspectorContainer} className="glass-panel">
+            <div style={styles.inspectorHeader}>
+              <h4 style={styles.inspectorTitle}>
+                Message Exchange Trace: <strong style={{ color: "#0A84FF" }}>{currentSteps[selectedStepIdx]?.name}</strong>
+              </h4>
+              
+              <div style={styles.inspectorTabs}>
+                {["body", "headers", "properties", "logs"].map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setInspectorTab(tab)}
+                    style={{
+                      ...styles.inspectorTabBtn,
+                      ...(inspectorTab === tab ? styles.inspectorTabBtnActive : {})
+                    }}
+                  >
+                    {tab === "body" ? "Payload Body" : tab === "headers" ? "Camel Headers" : tab === "properties" ? "Exchange Properties" : "MPL Trace Logs"}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-          <div style={styles.metricsRow}>
-            <span style={{ ...styles.metricBadge, backgroundColor: "rgba(34,197,94,0.1)", color: "#22C55E" }}>Status: 200 OK</span>
-            <span style={{ ...styles.metricBadge, backgroundColor: "rgba(10,132,255,0.1)", color: "#0A84FF" }}>Size: 1.24 KB</span>
-            <span style={{ ...styles.metricBadge, backgroundColor: "rgba(10,132,255,0.1)", color: "#0A84FF" }}>Time: 1.24s</span>
-            <span style={{ ...styles.metricBadge, backgroundColor: "rgba(255,138,0,0.1)", color: "#FF8A00" }}>Format: JSON</span>
+            <div style={styles.inspectorBody}>
+              {/* Body Tab */}
+              {inspectorTab === "body" && (
+                <div style={styles.bodyTabWrapper}>
+                  <div style={styles.bodyMeta}>
+                    <span style={{ fontSize: "11px", color: "#64748B" }}>
+                      Format: <strong>{currentSteps[selectedStepIdx]?.body.trim().startsWith("<") ? "XML" : "JSON"}</strong>
+                    </span>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button 
+                        style={styles.miniIconActionBtn} 
+                        onClick={() => navigator.clipboard.writeText(currentSteps[selectedStepIdx]?.body)}
+                        title="Copy Body Content"
+                      >
+                        📋
+                      </button>
+                      <button 
+                        style={styles.miniIconActionBtn} 
+                        onClick={downloadResponse}
+                        title="Download Payload"
+                      >
+                        📥
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    style={styles.inspectorTextarea}
+                    value={currentSteps[selectedStepIdx]?.body}
+                    readOnly
+                  />
+                </div>
+              )}
+
+              {/* Headers Tab */}
+              {inspectorTab === "headers" && (
+                <div style={styles.tableContainer}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={styles.th}>Header Property</th>
+                        <th style={styles.th}>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentSteps[selectedStepIdx]?.headers.length > 0 ? (
+                        currentSteps[selectedStepIdx]?.headers.map((h, i) => (
+                          <tr key={i}>
+                            <td style={styles.tdMonospace}>{h.key}</td>
+                            <td style={styles.td}>{h.value}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="2" style={{ ...styles.td, textAlign: "center", color: "#94A3B8" }}>No Headers Defined</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Properties Tab */}
+              {inspectorTab === "properties" && (
+                <div style={styles.tableContainer}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={styles.th}>Exchange Property</th>
+                        <th style={styles.th}>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentSteps[selectedStepIdx]?.properties.length > 0 ? (
+                        currentSteps[selectedStepIdx]?.properties.map((p, i) => (
+                          <tr key={i}>
+                            <td style={styles.tdMonospace}>{p.key}</td>
+                            <td style={styles.td}>{p.value}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="2" style={{ ...styles.td, textAlign: "center", color: "#94A3B8" }}>No Properties Defined</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Logs Tab */}
+              {inspectorTab === "logs" && (
+                <textarea
+                  style={styles.logsConsole}
+                  value={currentSteps[selectedStepIdx]?.logs}
+                  readOnly
+                />
+              )}
+            </div>
           </div>
+
         </div>
 
       </div>
@@ -677,7 +1026,7 @@ function PayloadSimulator({ history, setHistory, injectTemplate }) {
    B. TRANSFORMATION TOOLS WORKSPACE (9 DEVELOPER UTILITY TABS)
    ============================================================================ */
 function TransformationTools() {
-  const [activeTab, setActiveTab] = useState("studio"); // studio, diff, formatjson, formatxml, xmljson, jsonxml, csvxml, xmlxsd, xsdval, xpath
+  const [activeTab, setActiveTab] = useState("studio"); // studio, diff, formatjson, formatxml, xmljson, jsonxml, csvxml, xmlxsd, xsdval, xpath, jsonpath
 
   const tabsConfig = [
     { id: "studio", name: "Transformation Studio" },
@@ -689,7 +1038,8 @@ function TransformationTools() {
     { id: "csvxml", name: "CSV to XML" },
     { id: "xmlxsd", name: "XML to XSD" },
     { id: "xsdval", name: "XSD Validator" },
-    { id: "xpath", name: "XPath Tester" }
+    { id: "xpath", name: "XPath Tester" },
+    { id: "jsonpath", name: "JSON Path Tester" }
   ];
 
   return (
@@ -723,6 +1073,7 @@ function TransformationTools() {
         {activeTab === "xmlxsd" && <XmlXsdConvTab />}
         {activeTab === "xsdval" && <XsdValidatorTab />}
         {activeTab === "xpath" && <XPathTesterTab />}
+        {activeTab === "jsonpath" && <JSONPathTesterTab />}
       </div>
     </div>
   );
@@ -1213,6 +1564,135 @@ function XPathTesterTab() {
   );
 }
 
+function JSONPathTesterTab() {
+  const [json, setJson] = useState(TEMPLATES.sfEmployee);
+  const [expr, setExpr] = useState("$.d.results[0].firstName");
+  const [output, setOutput] = useState("");
+
+  const handleExecute = () => {
+    if (!json || !json.trim()) {
+      setOutput("Please provide JSON input.");
+      return;
+    }
+    if (!expr || !expr.trim()) {
+      setOutput("Please provide a JSON Path expression.");
+      return;
+    }
+
+    try {
+      const obj = JSON.parse(json);
+      
+      let path = expr.trim();
+      if (path.startsWith("$")) {
+        path = path.substring(1);
+      }
+      if (path.startsWith(".")) {
+        path = path.substring(1);
+      }
+      
+      path = path.replace(/\[\s*['"]?([\w-]+)['"]?\s*\]/g, ".$1");
+      path = path.replace(/\[\s*(\d+)\s*\]/g, ".$1");
+      
+      const segments = path.split(".").filter(x => x);
+      
+      if (segments.length === 0) {
+        setOutput(JSON.stringify(obj, null, 2));
+        window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+          detail: {
+            type: "success",
+            title: "JSON Path Evaluated",
+            desc: "Full object returned for root path expression."
+          }
+        }));
+        return;
+      }
+
+      let current = obj;
+      for (let segment of segments) {
+        if (current === null || current === undefined) {
+          setOutput(`Field path segment "${segment}" not found.`);
+          window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+            detail: {
+              type: "warning",
+              title: "JSON Path Warning",
+              desc: `Field path segment "${segment}" not found.`
+            }
+          }));
+          return;
+        }
+        if (Array.isArray(current) && !isNaN(segment)) {
+          current = current[parseInt(segment)];
+        } else if (typeof current === "object" && segment in current) {
+          current = current[segment];
+        } else {
+          setOutput(`Field path segment "${segment}" not found in current object.`);
+          window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+            detail: {
+              type: "warning",
+              title: "JSON Path Warning",
+              desc: `Field path segment "${segment}" not found in current object.`
+            }
+          }));
+          return;
+        }
+      }
+
+      if (typeof current === "object" && current !== null) {
+        setOutput(JSON.stringify(current, null, 2));
+      } else {
+        setOutput(String(current));
+      }
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: {
+          type: "success",
+          title: "JSON Path Evaluated",
+          desc: `Expression "${expr}" evaluated successfully.`
+        }
+      }));
+    } catch (e) {
+      setOutput("Error parsing JSON: " + e.message);
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: {
+          type: "error",
+          title: "JSON Path Parse Failure",
+          desc: e.message
+        }
+      }));
+    }
+  };
+
+  return (
+    <div style={styles.simLayoutRow}>
+      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.1 }}>
+        <h4 style={styles.paneTitle}>Input Panel</h4>
+        <textarea style={styles.textarea} value={json} onChange={(e) => setJson(e.target.value)} placeholder="JSON Payload..." />
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>JSON Path expression:</span>
+          <input style={styles.inlineInput} value={expr} onChange={(e) => setExpr(e.target.value)} placeholder="$.d.results[0].firstName" />
+        </div>
+        <button style={{ ...styles.runBtn, background: "#0A84FF" }} onClick={handleExecute}>🗺️ Evaluate JSON Path</button>
+      </div>
+
+      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
+        <h4 style={styles.paneTitle}>Output Panel (JSON Path Results)</h4>
+        <textarea style={{ ...styles.textarea, height: "230px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="JSON Path evaluation results will output here..." />
+        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy JSON Path</button>
+          <button style={styles.outlineActionBtn} onClick={() => {
+            const blob = new Blob([output], { type: "text/plain" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `jsonpath_result_${Date.now()}.txt`;
+            link.click();
+          }}>📥 Download Result</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 10. XML to XSD Converter Tab Component
 function XmlXsdConvTab() {
   const [input, setInput] = useState(TEMPLATES.s4Employee);
@@ -1313,6 +1793,34 @@ function XmlXsdConvTab() {
 /* ============================================================================
    C. GROOVY SCRIPT SIMULATOR
    ============================================================================ */
+const GROOVY_SNIPPETS = [
+  {
+    name: "Get/Set Body",
+    desc: "Read and replace body content",
+    code: `// Get and replace body content\n    String body = message.getBody(String.class);\n    body = body.replace("old", "new");\n    message.setBody(body);`
+  },
+  {
+    name: "Set Header",
+    desc: "Configure an outbound Camel Header",
+    code: `// Set header property\n    message.setHeader("cpiHeader", "ProcessedByGroovy");`
+  },
+  {
+    name: "Set Property",
+    desc: "Configure a Camel Exchange Property",
+    code: `// Set exchange property\n    message.setProperty("cpiProperty", "Order_" + new Date().getTime());`
+  },
+  {
+    name: "Add Attachment",
+    desc: "Write trace attachment to MPL log",
+    code: `// Add custom processing log attachment\n    def messageLog = messageLogFactory.getMessageLog(message);\n    if (messageLog) {\n        messageLog.addAttachmentAsString("Payload Attachment", body, "text/plain");\n    }`
+  },
+  {
+    name: "Add Custom Header Prop",
+    desc: "Add searchable MPL trace attribute",
+    code: `// Add custom header searchable property in CPI\n    def messageLog = messageLogFactory.getMessageLog(message);\n    if (messageLog) {\n        messageLog.addCustomHeaderProperty("SAP_DocumentNo", "DOC-10248");\n    }`
+  }
+];
+
 function GroovySimulator() {
   const [inputPayload, setInputPayload] = useState("<order>\n  <id>10248</id>\n  <customer>VINET</customer>\n</order>");
   const [scriptCode, setScriptCode] = useState(
@@ -1393,6 +1901,14 @@ function GroovySimulator() {
       const mpl = data.message_processing_log || {};
       setOutMplProperties(Array.isArray(mpl.properties) ? mpl.properties : []);
       setOutAttachments(Array.isArray(mpl.attachments) ? mpl.attachments : []);
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: {
+          type: "success",
+          title: "Groovy Script Executed",
+          desc: "Remote compilation completed for " + functionName + " successfully."
+        }
+      }));
     } catch (err) {
       const errMsg = err.response?.data?.error || err.message;
       console.warn("Backend unavailable, executing client-side Groovy simulation fallback...", err);
@@ -1413,13 +1929,11 @@ function GroovySimulator() {
         // Extract replacements: body = body.replace("<customer>VINET</customer>", "<customer>VINET_PRO</customer>");
         const replaceRegex = /\.replace(?:All)?\(\s*(["'`])([\s\S]*?)\1\s*,\s*(["'`])([\s\S]*?)\3\s*\)/g;
         let match;
-        let replaceCount = 0;
         while ((match = replaceRegex.exec(scriptCode)) !== null) {
           const target = match[2];
           const replacement = match[4];
           simulatedBody = simulatedBody.replaceAll(target, replacement);
           logs.push(`[VM] Body replace: "${target}" -> "${replacement}"`);
-          replaceCount++;
         }
         
         // Extract headers: message.setHeader("key", "val")
@@ -1456,6 +1970,42 @@ function GroovySimulator() {
           logs.push(`[STDOUT] ${match[2]}`);
         }
         
+        // Simulated attachments list
+        let simulatedMplProps = [
+          { name: "SAP_MessageProcessingLogID", text: "sim-" + Math.random().toString(36).substring(2, 10).toUpperCase(), type: "SystemProperty" },
+          { name: "SAP_MessageType", text: "Simulated_Groovy_Output", type: "SystemProperty" }
+        ];
+        let simulatedAttachments = [
+          { name: "Simulated_Trace_Log", text: logs.join("\n"), type: "text/plain" }
+        ];
+
+        // Extract custom header properties from script: messageLog.addCustomHeaderProperty("key", "val")
+        const customPropRegex = /messageLog\.addCustomHeaderProperty\(\s*(["'`])([\s\S]*?)\1\s*,\s*(["'`])([\s\S]*?)\3\s*\)/g;
+        let cMatch;
+        while ((cMatch = customPropRegex.exec(scriptCode)) !== null) {
+          const name = cMatch[2];
+          const val = cMatch[4];
+          simulatedMplProps.push({ name: name, text: val, type: "CustomHeaderProperty" });
+          logs.push(`[VM] MPL Custom Header logged: "${name}" = "${val}"`);
+        }
+
+        // Extract attachments: messageLog.addAttachmentAsString("name", body, "type")
+        const attachRegex = /messageLog\.addAttachmentAsString\(\s*(["'`])([\s\S]*?)\1\s*,\s*([^,]+?)\s*,\s*(["'`])([\s\S]*?)\4\s*\)/g;
+        let aMatch;
+        while ((aMatch = attachRegex.exec(scriptCode)) !== null) {
+          const name = aMatch[2];
+          let textArg = aMatch[3].trim();
+          const type = aMatch[5];
+          let attachText = "";
+          if (textArg === "body" || textArg === "message.getBody(String.class)") {
+            attachText = simulatedBody;
+          } else {
+            attachText = textArg.replace(/^["']|["']$/g, ''); // strip outer quotes
+          }
+          simulatedAttachments.push({ name: name, text: attachText, type: type });
+          logs.push(`[VM] MPL Attachment saved: "${name}" (${type})`);
+        }
+
         logs.push("[VM] Simulation run completed successfully.");
         
         setOutputBody(simulatedBody);
@@ -1463,16 +2013,26 @@ function GroovySimulator() {
         setOutHeaders(Object.entries(simulatedHeaders));
         setOutProperties(Object.entries(simulatedProps));
         
-        setOutMplProperties([
-          { name: "SAP_MessageProcessingLogID", text: "sim-" + Math.random().toString(36).substring(2, 10).toUpperCase(), type: "SystemProperty" },
-          { name: "SAP_MessageType", text: "Simulated_Groovy_Output", type: "SystemProperty" }
-        ]);
-        setOutAttachments([
-          { name: "Simulated_Trace_Log", text: logs.join("\n"), type: "text/plain" }
-        ]);
-        
+        setOutMplProperties(simulatedMplProps);
+        setOutAttachments(simulatedAttachments);
+
+        window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+          detail: {
+            type: "info",
+            title: "Local Groovy VM Executed",
+            desc: "Executed " + functionName + " script offline via compilation fallback."
+          }
+        }));
       } catch (simErr) {
         setConsoleLog(`❌ Remote compilation failed: ${errMsg}\n\n❌ Client-side Simulation Fallback also failed: ${simErr.message}`);
+
+        window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+          detail: {
+            type: "error",
+            title: "Groovy Compilation Failed",
+            desc: errMsg || simErr.message
+          }
+        }));
       }
     } finally {
       setLoading(false);
@@ -1532,7 +2092,7 @@ function GroovySimulator() {
           </div>
         </div>
 
-        <div style={{ ...styles.pane, flex: 1.3, minWidth: "380px" }} className="glass-panel">
+        <div style={{ ...styles.pane, flex: 1.5, minWidth: "380px" }} className="glass-panel">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
             <h4 style={{ ...styles.paneTitle, border: "none", margin: 0, padding: 0 }}>Script Editor</h4>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1541,7 +2101,39 @@ function GroovySimulator() {
             </div>
           </div>
           
-          <GroovyCodeEditor value={scriptCode} onChange={(e) => setScriptCode(e.target.value)} />
+          <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
+            {/* Snippets Panel */}
+            <div style={{ width: "160px", border: "1px solid #CBD5E1", borderRadius: "10px", background: "#F8FAFC", padding: "8px", maxHeight: "260px", overflowY: "auto", flexShrink: 0 }}>
+              <span style={{ fontSize: "10px", fontWeight: "700", color: "#64748B", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>CPI Snippets</span>
+              {GROOVY_SNIPPETS.map((snippet, sIdx) => (
+                <div 
+                  key={sIdx}
+                  onClick={() => {
+                    setScriptCode(prev => prev.replace("return message;", `${snippet.code}\n\n    return message;`));
+                  }}
+                  style={{
+                    backgroundColor: "#FFFFFF",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "6px",
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    marginBottom: "6px",
+                    fontSize: "11px",
+                    transition: "all 0.15s ease"
+                  }}
+                  title="Click to inject into processData method"
+                >
+                  <strong style={{ color: "#0A84FF", display: "block", fontSize: "11px" }}>{snippet.name}</strong>
+                  <span style={{ color: "#64748B", fontSize: "9px" }}>{snippet.desc}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Editor wrapper */}
+            <div style={{ flex: 1 }}>
+              <GroovyCodeEditor value={scriptCode} onChange={(e) => setScriptCode(e.target.value)} />
+            </div>
+          </div>
           
           <button
             style={{
@@ -1708,6 +2300,27 @@ function GroovySimulator() {
 /* ============================================================================
    D. XSLT SIMULATOR
    ============================================================================ */
+const XSLT_PRESETS = [
+  {
+    name: "S/4HANA to SF Employee",
+    desc: "Transforms ERP Employee to SF format",
+    xml: `<EmployeeData>\n  <Employee>\n    <PersonalNo>PER-98273</PersonalNo>\n    <FirstName>John</FirstName>\n    <LastName>Doe</LastName>\n    <Department>R&amp;D</Department>\n    <Country>DE</Country>\n  </Employee>\n</EmployeeData>`,
+    xslt: `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">\n  <xsl:template match="/">\n    <SFEmployeeList>\n      <xsl:for-each select="EmployeeData/Employee">\n        <User>\n          <userId><xsl:value-of select="PersonalNo"/></userId>\n          <firstName><xsl:value-of select="FirstName"/></firstName>\n          <lastName><xsl:value-of select="LastName"/></lastName>\n          <department><xsl:value-of select="Department"/></department>\n          <status>Active</status>\n        </User>\n      </xsl:for-each>\n    </SFEmployeeList>\n  </xsl:template>\n</xsl:stylesheet>`
+  },
+  {
+    name: "Namespace Stripper",
+    desc: "Remove soap/ERP ns prefixes",
+    xml: `<ns0:Envelope xmlns:ns0="http://sap.com/xi/S4HANA">\n  <ns0:Header>\n    <ns0:MessageId>MSG-10023</ns0:MessageId>\n  </ns0:Header>\n  <ns0:Body>\n    <ns0:Data>Hello World</ns0:Data>\n  </ns0:Body>\n</ns0:Envelope>`,
+    xslt: `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">\n  <!-- Match all elements & copy without ns prefix -->\n  <xsl:template match="*">\n    <xsl:element name="{local-name()}">\n      <xsl:apply-templates select="@*|node()"/>\n    </xsl:element>\n  </xsl:template>\n  <xsl:template match="@*">\n    <xsl:attribute name="{local-name()}">\n      <xsl:value-of select="."/>\n    </xsl:attribute>\n  </xsl:template>\n</xsl:stylesheet>`
+  },
+  {
+    name: "Element Filter",
+    desc: "Filters offices located in London",
+    xml: `<Offices>\n  <Office>\n    <City>London</City>\n    <Staff>120</Staff>\n  </Office>\n  <Office>\n    <City>Munich</City>\n    <Staff>80</Staff>\n  </Office>\n  <Office>\n    <City>New York</City>\n    <Staff>250</Staff>\n  </Office>\n</Offices>`,
+    xslt: `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">\n  <xsl:template match="/">\n    <FilteredOffices>\n      <xsl:for-each select="Offices/Office[City='London']">\n        <Office>\n          <Location><xsl:value-of select="City"/></Location>\n          <Size><xsl:value-of select="Staff"/></Size>\n        </Office>\n      </xsl:for-each>\n    </FilteredOffices>\n  </xsl:template>\n</xsl:stylesheet>`
+  }
+];
+
 function XsltSimulator() {
   const [xmlInput, setXmlInput] = useState(
     `<catalog>\n  <cd>\n    <title>Empire Burlesque</title>\n    <artist>Bob Dylan</artist>\n    <country>USA</country>\n  </cd>\n</catalog>`
@@ -1745,9 +2358,25 @@ function XsltSimulator() {
       if (!serialized) {
         throw new Error("No output was produced by the transformation.");
       }
-      setOutput(serialized);
+      setOutput(formatXml(serialized));
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: {
+          type: "success",
+          title: "XSLT Transform Success",
+          desc: "Successfully converted XML message payload using stylesheet."
+        }
+      }));
     } catch (err) {
       setErrorMsg(err.message || String(err));
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: {
+          type: "error",
+          title: "XSLT Transform Failed",
+          desc: err.message || String(err)
+        }
+      }));
     }
   };
 
@@ -1763,6 +2392,38 @@ function XsltSimulator() {
       </div>
 
       <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", alignItems: "flex-start" }}>
+        
+        {/* Templates Sidebar */}
+        <div style={{ width: "200px", border: "1px solid #CBD5E1", borderRadius: "10px", background: "#F8FAFC", padding: "12px", minHeight: "440px", flexShrink: 0 }} className="glass-panel">
+          <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", textTransform: "uppercase", display: "block", marginBottom: "12px" }}>XSLT Templates</span>
+          {XSLT_PRESETS.map((preset, idx) => (
+            <div 
+              key={idx}
+              onClick={() => {
+                setXmlInput(preset.xml);
+                setXsltStylesheet(preset.xslt);
+                setOutput("");
+                setErrorMsg("");
+              }}
+              style={{
+                backgroundColor: "#FFFFFF",
+                border: "1px solid #E2E8F0",
+                borderRadius: "8px",
+                padding: "8px 10px",
+                cursor: "pointer",
+                marginBottom: "8px",
+                fontSize: "12px",
+                transition: "all 0.15s ease",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+              }}
+              title="Click to load XML and XSLT template"
+            >
+              <strong style={{ color: "#284478", display: "block", fontSize: "12px", marginBottom: "3px" }}>{preset.name}</strong>
+              <span style={{ color: "#64748B", fontSize: "10px", lineHeight: "1.3", display: "block" }}>{preset.desc}</span>
+            </div>
+          ))}
+        </div>
+
         <div style={{ ...styles.pane, flex: 1, minWidth: "300px" }} className="glass-panel">
           <h4 style={styles.paneTitle}>Input XML Payload</h4>
           <textarea style={{ ...styles.textarea, height: 420, fontFamily: "monospace" }} value={xmlInput} onChange={(e) => setXmlInput(e.target.value)} />
@@ -1787,13 +2448,85 @@ function XsltSimulator() {
 /* ============================================================================
    E. API REQUEST TESTING WORKSPACE
    ============================================================================ */
-function ApiRequestTesting() {
+const API_PRESETS = [
+  {
+    name: "SuccessFactors User Fetch",
+    method: "GET",
+    url: "https://api.successfactors.com/odata/v2/User?$format=json&$select=userId,username,firstName,lastName,email&$filter=status eq 'active'",
+    authType: "basic",
+    authFields: { username: "sf_admin", password: "sf_password_123" },
+    headers: { "Content-Type": "application/json", "Accept": "application/json" }
+  },
+  {
+    name: "BTP MPL Logs Fetch",
+    method: "GET",
+    url: "https://tenant.itg.cfapps.eu10.hana.ondemand.com/api/v1/MessageProcessingLogs?$format=json&$top=10&$orderby=logStart desc",
+    authType: "oauth2",
+    authFields: { clientId: "btp-client-id", clientSecret: "btp-client-secret", tokenUrl: "https://tenant.authentication.eu10.hana.ondemand.com/oauth/token" },
+    headers: { "Accept": "application/json" }
+  },
+  {
+    name: "Ariba PO POST",
+    method: "POST",
+    url: "https://openapi.ariba.com/api/purchase-orders/v1/sandbox/orders",
+    authType: "apikey",
+    authFields: { apiKeyName: "apiKey", apiKeyValue: "ariba-sandbox-key-abc123xyz", apiKeyLocation: "header" },
+    headers: { "Content-Type": "application/json" },
+    bodyType: "json",
+    body: `{\n  "purchaseOrder": {\n    "orderHeader": {\n      "documentNumber": "PO-2026-9081",\n      "creationDate": "2026-06-04T10:00:00Z",\n      "currency": "EUR",\n      "paymentTerms": "NET30"\n    },\n    "supplier": {\n      "supplierId": "SUPP-00129",\n      "name": "Global Trade Logistics"\n    },\n    "items": [\n      {\n        "lineNumber": 1,\n        "partNumber": "MAT-90812",\n        "description": "Premium Sterile Vials",\n        "quantity": 500,\n        "unitPrice": 12.50\n      }\n    ]\n  }\n}`
+  }
+];
+
+function ApiRequestTesting({ activeEnvName = "PRODUCTION", customEnvironments = [] }) {
   const [method, setMethod] = useState(() => localStorage.getItem("integrovax_api_method") || "POST");
   const [url, setUrl] = useState(() => localStorage.getItem("integrovax_api_url") || "");
   
   // Tab states
   const [activeReqTab, setActiveReqTab] = useState("params");
   const [responseTab, setResponseTab] = useState("body");
+
+  // Sync selected environment configuration on environment change
+  useEffect(() => {
+    if (!activeEnvName || customEnvironments.length === 0) return;
+    const matchedEnv = customEnvironments.find(e => e.name === activeEnvName);
+    if (matchedEnv) {
+      let currentPath = "";
+      try {
+        if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
+          const parsed = new URL(url);
+          currentPath = parsed.pathname + parsed.search + parsed.hash;
+        } else {
+          currentPath = url || "";
+        }
+      } catch (e) {
+        currentPath = url || "";
+      }
+      
+      const base = matchedEnv.baseUrl.replace(/\/$/, "");
+      const path = currentPath.replace(/^\//, "");
+      const nextUrl = path ? `${base}/${path}` : base;
+      setUrl(nextUrl);
+      localStorage.setItem("integrovax_api_url", nextUrl);
+
+      setAuthType(matchedEnv.authType || "none");
+      if (matchedEnv.authType !== "none") {
+        setAuthFields(prev => ({
+          ...prev,
+          username: matchedEnv.username || "",
+          password: matchedEnv.password || "",
+          clientId: matchedEnv.clientId || "",
+          clientSecret: matchedEnv.clientSecret || "",
+          tokenUrl: matchedEnv.tokenUrl || "",
+          apiKeyName: matchedEnv.apiKeyName || "apiKey",
+          apiKeyValue: matchedEnv.apiKeyValue || "",
+          apiKeyLocation: matchedEnv.apiKeyLocation || "header"
+        }));
+      }
+
+      setValidationMsg({ type: "info", text: `🔌 Connected to Environment: ${matchedEnv.name}` });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEnvName, customEnvironments]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Bidirectional URL parser helper
@@ -1880,6 +2613,59 @@ function ApiRequestTesting() {
   
   // Inline warnings/syntax confirmations
   const [validationMsg, setValidationMsg] = useState(null);
+
+  const loadApiPreset = (preset) => {
+    setMethod(preset.method);
+    setUrl(preset.url);
+    localStorage.setItem("integrovax_api_method", preset.method);
+    localStorage.setItem("integrovax_api_url", preset.url);
+
+    // Parse query params
+    const qIdx = preset.url.indexOf('?');
+    if (qIdx !== -1) {
+      const queryStr = preset.url.substring(qIdx + 1);
+      const pairs = queryStr.split('&').filter(p => p);
+      const parsed = pairs.map((pair, idx) => {
+        const eqIdx = pair.indexOf('=');
+        const key = eqIdx === -1 ? pair : decodeURIComponent(pair.substring(0, eqIdx));
+        const val = eqIdx === -1 ? "" : decodeURIComponent(pair.substring(eqIdx + 1));
+        return { id: `url-param-${idx}-${Date.now()}`, key, value: val, enabled: true };
+      });
+      setQueryParams(parsed);
+    } else {
+      setQueryParams([]);
+    }
+
+    // Set auth
+    setAuthType(preset.authType);
+    if (preset.authFields) {
+      setAuthFields(prev => ({
+        ...prev,
+        ...preset.authFields
+      }));
+    }
+
+    // Set headers
+    if (preset.headers) {
+      const hList = Object.entries(preset.headers).map(([k, v], idx) => ({
+        id: `header-${idx}-${Date.now()}`,
+        key: k,
+        value: v,
+        enabled: true
+      }));
+      setHeaders(hList);
+    }
+
+    // Set body
+    if (preset.body) {
+      setBodyType(preset.bodyType || "json");
+      setBodyContent(preset.body);
+    } else {
+      setBodyContent("");
+    }
+
+    setValidationMsg({ type: "success", text: `✓ Loaded CPI Preset: ${preset.name}` });
+  };
 
   // Handlers for Param table editing
   const handleParamChange = (id, field, value) => {
@@ -2292,6 +3078,13 @@ function ApiRequestTesting() {
         responseSize: bodySizeDisplay
       });
 
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: {
+          type: "success",
+          title: "API Request Completed",
+          desc: `${method} to ${targetUrl} returned status ${res.status}`
+        }
+      }));
     } catch (err) {
       const endTime = Date.now();
       const duration = endTime - startTime;
@@ -2330,6 +3123,14 @@ function ApiRequestTesting() {
         requestSize: `${(requestSize / 1024).toFixed(2)} KB`,
         responseSize: "0.00 KB"
       });
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: {
+          type: "error",
+          title: "API Request Failed",
+          desc: `${method} to ${targetUrl} failed: ${err.message}`
+        }
+      }));
     } finally {
       setLoading(false);
     }
@@ -2716,6 +3517,33 @@ function ApiRequestTesting() {
             {isFullscreen ? "🗖 Restore Split Panel" : "🗗 Fullscreen Response"}
           </button>
         )}
+      </div>
+
+      {/* Presets Selection Bar */}
+      <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "16px", background: "#f8fafc", padding: "8px 12px", borderRadius: "10px", border: "1px solid #e2e8f0", flexWrap: "wrap" }}>
+        <span style={{ fontSize: "12px", fontWeight: "bold", color: "#64748B" }}>CPI Presets:</span>
+        {API_PRESETS.map((preset, idx) => (
+          <button
+            key={idx}
+            onClick={() => loadApiPreset(preset)}
+            style={{
+              padding: "6px 12px",
+              background: "#ffffff",
+              border: "1px solid #cbd5e1",
+              borderRadius: "6px",
+              fontSize: "12px",
+              fontWeight: "500",
+              color: "#334155",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = "#0A84FF"; e.currentTarget.style.color = "#0A84FF"; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = "#cbd5e1"; e.currentTarget.style.color = "#334155"; }}
+          >
+            {preset.name}
+          </button>
+        ))}
       </div>
 
       {/* URL & Method Row */}
@@ -3557,8 +4385,8 @@ function MockPayloadGenerator() {
   const [template, setTemplate] = useState("SAP S/4HANA Employee");
   const [fields, setFields] = useState([
     { key: "employeeId", type: "Integer", val: "1001" },
-    { key: "firstName", type: "String", val: "Steven" },
-    { key: "lastName", type: "String", val: "Buchanan" },
+    { key: "firstName", type: "Name", val: "Steven" },
+    { key: "lastName", type: "Name", val: "Buchanan" },
     { key: "city", type: "String", val: "London" }
   ]);
   const [format, setFormat] = useState("JSON");
@@ -3569,22 +4397,61 @@ function MockPayloadGenerator() {
     if (tmplName === "SAP S/4HANA Employee") {
       setFields([
         { key: "employeeId", type: "Integer", val: "1001" },
-        { key: "firstName", type: "String", val: "Steven" },
-        { key: "lastName", type: "String", val: "Buchanan" },
+        { key: "firstName", type: "Name", val: "Steven" },
+        { key: "lastName", type: "Name", val: "Buchanan" },
         { key: "city", type: "String", val: "London" }
       ]);
     } else if (tmplName === "SuccessFactors Employee") {
       setFields([
         { key: "userId", type: "String", val: "sbuchanan" },
-        { key: "firstName", type: "String", val: "Steven" },
-        { key: "lastName", type: "String", val: "Buchanan" },
-        { key: "department", type: "String", val: "Sales" }
+        { key: "firstName", type: "Name", val: "Steven" },
+        { key: "lastName", type: "Name", val: "Buchanan" },
+        { key: "department", type: "Choices", val: "Sales | Engineering | Marketing" }
       ]);
     } else if (tmplName === "Ariba Purchase Order") {
       setFields([
         { key: "poNumber", type: "String", val: "PO-2026-98712" },
         { key: "supplier", type: "String", val: "TechParts Inc" },
         { key: "totalAmount", type: "Integer", val: "12450" }
+      ]);
+    } else if (tmplName === "SAP IDoc MATMAS (XML)") {
+      setFormat("XML");
+      setFields([
+        { key: "IDOC_BEGIN", type: "Integer", val: "1" },
+        { key: "MESTYP", type: "String", val: "MATMAS" },
+        { key: "IDOCTYP", type: "String", val: "MATMAS05" },
+        { key: "MATNR", type: "String", val: "MAT-29012" },
+        { key: "MAKTX", type: "String", val: "Sterile Vials 10ml" },
+        { key: "MTART", type: "Choices", val: "FERT | HALB | ROH" },
+        { key: "MEINS", type: "String", val: "PC" },
+        { key: "BRGEW", type: "String", val: "12.50" },
+        { key: "GEWEI", type: "String", val: "KGM" }
+      ]);
+    } else if (tmplName === "SAP IDoc DEBMAS (XML)") {
+      setFormat("XML");
+      setFields([
+        { key: "IDOC_BEGIN", type: "Integer", val: "1" },
+        { key: "MESTYP", type: "String", val: "DEBMAS" },
+        { key: "IDOCTYP", type: "String", val: "DEBMAS07" },
+        { key: "KUNNR", type: "String", val: "KUST-0091" },
+        { key: "NAME1", type: "Name", val: "ACME Healthcare Corp" },
+        { key: "ORT01", type: "String", val: "Heidelberg" },
+        { key: "PSTLZ", type: "String", val: "69115" },
+        { key: "LAND1", type: "String", val: "DE" },
+        { key: "SPART", type: "String", val: "10" }
+      ]);
+    } else if (tmplName === "SuccessFactors OData Batch (JSON)") {
+      setFormat("JSON");
+      setFields([
+        { key: "__metadata_type", type: "String", val: "SFOData.User" },
+        { key: "userId", type: "UUID", val: "" },
+        { key: "username", type: "String", val: "john.doe" },
+        { key: "firstName", type: "Name", val: "John" },
+        { key: "lastName", type: "Name", val: "Doe" },
+        { key: "email", type: "String", val: "john.doe@company.com" },
+        { key: "department", type: "Choices", val: "Vaccine Research | QA | Logistics" },
+        { key: "status", type: "Choices", val: "active | inactive" },
+        { key: "hireDate", type: "Date", val: "" }
       ]);
     }
   };
@@ -3597,30 +4464,73 @@ function MockPayloadGenerator() {
     setFields(next);
   };
 
+  const generateValue = (type, currentVal) => {
+    switch (type) {
+      case "UUID":
+        return "uuid-" + Math.random().toString(36).substring(2, 10) + "-" + Math.random().toString(36).substring(2, 6) + "-" + Math.random().toString(36).substring(2, 6);
+      case "Name":
+        const firstNames = ["James", "Mary", "John", "Patricia", "Robert", "Jennifer", "Michael", "Linda"];
+        const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Miller", "Davis", "Garcia"];
+        const f = firstNames[Math.floor(Math.random() * firstNames.length)];
+        const l = lastNames[Math.floor(Math.random() * lastNames.length)];
+        return `${f} ${l}`;
+      case "Integer":
+        if (currentVal && !isNaN(currentVal)) return parseInt(currentVal);
+        return Math.floor(Math.random() * 10000) + 1;
+      case "Phone":
+        return "+1-555-01" + Math.floor(10 + Math.random() * 90);
+      case "Date":
+        return new Date(Date.now() - Math.floor(Math.random() * 10000000000)).toISOString().split('T')[0];
+      case "Boolean":
+        return Math.random() > 0.5 ? "true" : "false";
+      case "Choices":
+        const choices = currentVal ? currentVal.split("|").map(x => x.trim()) : ["Active", "Inactive", "Suspended"];
+        return choices[Math.floor(Math.random() * choices.length)];
+      default: // String
+        return currentVal || "MockData";
+    }
+  };
+
   const handleGenerate = () => {
     let result = "";
+    const generatedData = fields.map(f => {
+      return {
+        key: f.key,
+        type: f.type,
+        val: generateValue(f.type, f.val)
+      };
+    });
+
     if (format === "JSON") {
       let obj = {};
-      fields.forEach(f => {
+      generatedData.forEach(f => {
         if (f.key) {
-          obj[f.key] = f.type === "Integer" ? parseInt(f.val || "0") : f.type === "Boolean" ? f.val === "true" : f.val;
+          obj[f.key] = f.type === "Integer" ? parseInt(f.val) : f.type === "Boolean" ? f.val === "true" : f.val;
         }
       });
       result = JSON.stringify(obj, null, 2);
     } else if (format === "XML") {
       result = `<?xml version="1.0" encoding="UTF-8"?>\n<Root>\n`;
-      fields.forEach(f => {
+      generatedData.forEach(f => {
         if (f.key) {
           result += `  <${f.key}>${f.val}</${f.key}>\n`;
         }
       });
       result += `</Root>`;
     } else {
-      const headers = fields.map(f => f.key).join(",");
-      const vals = fields.map(f => f.val).join(",");
+      const headers = generatedData.map(f => f.key).join(",");
+      const vals = generatedData.map(f => f.val).join(",");
       result = `${headers}\n${vals}`;
     }
     setOutput(result);
+
+    window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+      detail: {
+        type: "success",
+        title: "Mock Payload Generated",
+        desc: `Successfully generated ${format} mock payload based on "${template}" schema.`
+      }
+    }));
   };
 
   return (
@@ -3636,6 +4546,9 @@ function MockPayloadGenerator() {
                 <option>SAP S/4HANA Employee</option>
                 <option>SuccessFactors Employee</option>
                 <option>Ariba Purchase Order</option>
+                <option>SAP IDoc MATMAS (XML)</option>
+                <option>SAP IDoc DEBMAS (XML)</option>
+                <option>SuccessFactors OData Batch (JSON)</option>
               </select>
             </div>
             <button style={styles.smallAddBtn} onClick={addRow}>+ Add Field</button>
@@ -3649,6 +4562,11 @@ function MockPayloadGenerator() {
                   <option>String</option>
                   <option>Integer</option>
                   <option>Boolean</option>
+                  <option>UUID</option>
+                  <option>Name</option>
+                  <option>Phone</option>
+                  <option>Date</option>
+                  <option>Choices</option>
                 </select>
                 <input style={styles.inlineInput} value={f.val} onChange={(e) => updateRow(i, "val", e.target.value)} placeholder="Mock Value" />
                 <button style={styles.smallDelBtn} onClick={() => removeRow(i)}>✕</button>
@@ -4725,5 +5643,155 @@ const styles = {
     borderTopColor: "transparent",
     borderRadius: "50%",
     display: "inline-block"
+  },
+  pipelineContainer: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderRadius: "16px",
+    padding: "24px 20px",
+    border: "1px solid rgba(226, 232, 240, 0.8)",
+    boxShadow: "0 4px 20px rgba(0,0,0,0.02)",
+    marginBottom: "20px",
+    flexWrap: "nowrap",
+    overflowX: "auto"
+  },
+  pipelineNode: {
+    flex: "1",
+    minWidth: "140px",
+    maxWidth: "180px",
+    border: "2px solid #E2E8F0",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    transition: "all 0.25s ease-in-out",
+    userSelect: "none"
+  },
+  nodeIconWrap: {
+    width: "30px",
+    height: "30px",
+    borderRadius: "8px",
+    backgroundColor: "rgba(100, 116, 139, 0.06)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0
+  },
+  nodeDetails: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+    overflow: "hidden"
+  },
+  nodeName: {
+    fontSize: "11.5px",
+    fontWeight: "700",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+    overflow: "hidden"
+  },
+  nodeStatusText: {
+    fontSize: "9px",
+    fontWeight: "600",
+    color: "#94A3B8"
+  },
+  pipelineArrow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px",
+    flexShrink: 0
+  },
+  inspectorContainer: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: "16px",
+    border: "1px solid rgba(226, 232, 240, 0.8)",
+    padding: "20px",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.02)",
+    display: "flex",
+    flexDirection: "column",
+    flex: "1"
+  },
+  inspectorHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "16px",
+    borderBottom: "1px solid #F1F5F9",
+    paddingBottom: "12px",
+    flexWrap: "wrap",
+    gap: "12px"
+  },
+  inspectorTitle: {
+    fontSize: "14px",
+    fontWeight: "600",
+    color: "#0F172A",
+    margin: 0
+  },
+  inspectorTabs: {
+    display: "flex",
+    gap: "4px",
+    backgroundColor: "#F1F5F9",
+    padding: "3px",
+    borderRadius: "8px"
+  },
+  inspectorTabBtn: {
+    padding: "6px 12px",
+    fontSize: "11px",
+    fontWeight: "700",
+    color: "#475569",
+    backgroundColor: "transparent",
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+    transition: "all 0.2s"
+  },
+  inspectorTabBtnActive: {
+    backgroundColor: "#FFFFFF",
+    color: "#0A84FF",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.08)"
+  },
+  bodyTabWrapper: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px"
+  },
+  bodyMeta: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center"
+  },
+  inspectorTextarea: {
+    width: "100%",
+    height: "238px",
+    padding: "12px",
+    borderRadius: "10px",
+    border: "1px solid #E2E8F0",
+    fontSize: "12px",
+    lineHeight: "1.6",
+    fontFamily: "Consolas, Monaco, monospace",
+    color: "#9DF9FF",
+    backgroundColor: "#0B1930",
+    outline: "none",
+    resize: "none",
+    boxSizing: "border-box"
+  },
+  logsConsole: {
+    width: "100%",
+    height: "260px",
+    padding: "12px",
+    borderRadius: "10px",
+    border: "1px solid #1E293B",
+    fontSize: "12px",
+    lineHeight: "1.6",
+    fontFamily: "Consolas, Monaco, monospace",
+    color: "#7cfc00",
+    backgroundColor: "#111111",
+    outline: "none",
+    resize: "none",
+    boxSizing: "border-box"
   }
 };
