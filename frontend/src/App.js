@@ -11,7 +11,7 @@ import Simulators from "./pages/Simulators/Simulators";
 
 export default function App() {
   const [tab, setTab] = useState("Overview");
-  const [env, setEnv] = useState("PRODUCTION");
+  const [env, setEnv] = useState("RUNTIME");
   const [searchFocused, setSearchFocused] = useState(false);
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
 
@@ -115,6 +115,7 @@ export default function App() {
 
   // Environment & Credentials Manager State
   const defaultEnvs = [
+    { name: "RUNTIME", baseUrl: "http://localhost:40005/sap", authType: "none" },
     { name: "PRODUCTION", baseUrl: "https://tenant-prod.itg.cfapps.eu10.hana.ondemand.com", authType: "none" },
     { name: "STAGE", baseUrl: "https://tenant-stage.itg.cfapps.eu10.hana.ondemand.com", authType: "none" },
     { name: "DEVELOPMENT", baseUrl: "https://tenant-dev.itg.cfapps.eu10.hana.ondemand.com", authType: "none" }
@@ -122,7 +123,12 @@ export default function App() {
 
   const [customEnvs, setCustomEnvs] = useState(() => {
     const saved = localStorage.getItem("integrovax_custom_environments");
-    return saved ? JSON.parse(saved) : defaultEnvs;
+    let list = saved ? JSON.parse(saved) : defaultEnvs;
+    if (!list.some(e => e.name === "RUNTIME")) {
+      list = [{ name: "RUNTIME", baseUrl: "http://localhost:40005/sap", authType: "none" }, ...list];
+      localStorage.setItem("integrovax_custom_environments", JSON.stringify(list));
+    }
+    return list;
   });
 
   const [showEnvDropdown, setShowEnvDropdown] = useState(false);
@@ -200,7 +206,7 @@ export default function App() {
   };
 
   const handleDeleteEnv = (nameToDelete) => {
-    if (nameToDelete === "PRODUCTION" || nameToDelete === "STAGE" || nameToDelete === "DEVELOPMENT") {
+    if (nameToDelete === "RUNTIME" || nameToDelete === "PRODUCTION" || nameToDelete === "STAGE" || nameToDelete === "DEVELOPMENT") {
       alert("System default environments cannot be deleted.");
       return;
     }
