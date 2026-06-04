@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" width="100%" height="100%">
+  <defs>
+    <!-- Left Blue Wing Gradient -->
+    <linearGradient id="blueWingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00C0FF" />
+      <stop offset="60%" stop-color="#005BFF" />
+      <stop offset="100%" stop-color="#002B99" />
+    </linearGradient>
+
+    <!-- Right Orange Wing Gradient -->
+    <linearGradient id="orangeWingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFAE00" />
+      <stop offset="60%" stop-color="#FF5D00" />
+      <stop offset="100%" stop-color="#B33600" />
+    </linearGradient>
+
+    <!-- Orbit Ring Gradient -->
+    <linearGradient id="orbitGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00E5FF" />
+      <stop offset="50%" stop-color="#0088FF" />
+      <stop offset="100%" stop-color="#00C0FF" />
+    </linearGradient>
+
+    <!-- Chevron Gradient -->
+    <linearGradient id="chevronGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00A3FF" />
+      <stop offset="100%" stop-color="#0040FF" />
+    </linearGradient>
+
+    <!-- Star Glow Filter -->
+    <filter id="starGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <g transform="translate(10, 5)">
+    <!-- 1. LEFT BLUE WING (Stylized Left Half of 'X') -->
+    <path d="M 32,15 
+             C 45,15 78,55 78,65 
+             C 78,75 58,105 35,105 
+             C 24,105 18,98 25,90 
+             C 32,82 58,62 58,55 
+             C 58,48 24,28 20,22 
+             C 17,17 24,15 32,15 Z" 
+          fill="url(#blueWingGrad)" />
+
+    <!-- 2. RIGHT ORANGE WING (Stylized Right Half of 'X') -->
+    <path d="M 108,15 
+             C 120,15 125,22 120,28 
+             C 115,35 88,60 88,65 
+             C 88,70 112,88 118,94 
+             C 124,100 118,105 106,105 
+             C 85,105 66,75 66,65 
+             C 66,55 95,15 108,15 Z" 
+          fill="url(#orangeWingGrad)" />
+
+    <!-- 3. CENTRAL WHITE CIRCLE CUTOUT (Mask overlay feel) -->
+    <circle cx="72" cy="55" r="23" fill="#FFFFFF" />
+
+    <!-- 4. BLUE CIRCUIT TRACES (Inside and Left of the Cutout) -->
+    <!-- Track 1 (Top) -->
+    <path d="M 15,35 L 38,35 L 46,47 L 58,47" fill="none" stroke="#005BFF" stroke-width="2.5" stroke-linecap="round" />
+    <circle cx="15" cy="35" r="4.5" fill="#005BFF" stroke="#FFFFFF" stroke-width="1.5" />
+
+    <!-- Track 2 (Upper Middle) -->
+    <path d="M 28,48 L 38,48 L 46,55 L 56,55" fill="none" stroke="#005BFF" stroke-width="2.5" stroke-linecap="round" />
+    <circle cx="28" cy="48" r="4.5" fill="#005BFF" stroke="#FFFFFF" stroke-width="1.5" />
+
+    <!-- Track 3 (Lower Middle) -->
+    <path d="M 8,56 L 50,56" fill="none" stroke="#005BFF" stroke-width="2.5" stroke-linecap="round" />
+    <circle cx="8" cy="56" r="4.5" fill="#005BFF" stroke="#FFFFFF" stroke-width="1.5" />
+
+    <!-- Track 4 (Bottom) -->
+    <path d="M 17,75 L 39,75 L 47,67 L 57,67" fill="none" stroke="#005BFF" stroke-width="2.5" stroke-linecap="round" />
+    <circle cx="17" cy="75" r="4.5" fill="#005BFF" stroke="#FFFFFF" stroke-width="1.5" />
+
+    <!-- 5. CHEVRONS (Right side inside the cutout) -->
+    <!-- Left Chevron -->
+    <path d="M 68,46 L 76,55 L 68,64 L 73,64 L 81,55 L 73,46 Z" fill="url(#chevronGrad)" />
+    <!-- Right Chevron -->
+    <path d="M 78,46 L 86,55 L 78,64 L 83,64 L 91,55 L 83,46 Z" fill="url(#chevronGrad)" />
+
+    <!-- 6. GLOWING ORBITAL SWOOSH (Cyan Swoop crossing the front) -->
+    <path d="M 24,84 
+             C 18,92 28,95 44,91 
+             C 68,85 108,62 125,44 
+             C 134,35 136,26 128,26 
+             C 122,26 108,35 90,48" 
+          fill="none" 
+          stroke="url(#orbitGrad)" 
+          stroke-width="4.5" 
+          stroke-linecap="round" />
+
+    <!-- 7. GLOWING 4-POINT STAR (Top Right of the Swoosh) -->
+    <g transform="translate(128, 20)" filter="url(#starGlow)">
+      <path d="M 0,-12 
+               Q 0,0 12,0 
+               Q 0,0 0,12 
+               Q 0,0 -12,0 
+               Q 0,0 0,-12 Z" 
+            fill="#00E5FF" />
+      <!-- Star white core -->
+      <path d="M 0,-6 
+               Q 0,0 6,0 
+               Q 0,0 0,6 
+               Q 0,0 -6,0 
+               Q 0,0 0,-6 Z" 
+            fill="#FFFFFF" />
+    </g>
+  </g>
+</svg>

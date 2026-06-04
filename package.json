@@ -1,0 +1,14 @@
+{
+  "name": "cpi-control-tower",
+  "private": true,
+  "scripts": {
+    "backend": "npm --prefix backend run start",
+    "frontend": "npm --prefix frontend run start"
+  },
+  "dependencies": {
+    "@google/genai": "^2.6.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}
