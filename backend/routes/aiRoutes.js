@@ -3,6 +3,22 @@ const router = express.Router();
 const { generateFailureAnalysis, generateCopilotReply, generateIflowSpec, generateIflowResources } = require("../services/ai/geminiService");
 const cpiService = require("../services/sap/cpiService");
 
+const getEnvContext = (req) => {
+  return {
+    envName: req.headers['x-cpi-env-name'],
+    baseUrl: req.headers['x-cpi-base-url'],
+    authType: req.headers['x-cpi-auth-type'],
+    username: req.headers['x-cpi-username'],
+    password: req.headers['x-cpi-password'],
+    clientId: req.headers['x-cpi-client-id'],
+    clientSecret: req.headers['x-cpi-client-secret'],
+    tokenUrl: req.headers['x-cpi-token-url'],
+    apiKeyName: req.headers['x-cpi-api-key-name'],
+    apiKeyValue: req.headers['x-cpi-api-key-value'],
+    apiKeyLocation: req.headers['x-cpi-api-key-location'],
+  };
+};
+
 // Helper to derive a strictly compliant SAP CPI Technical ID from a friendly Package Name
 function deriveTechnicalId(name) {
   if (!name) return "";
@@ -91,7 +107,8 @@ router.post("/create-iflow", async (req, res) => {
           const pkgRes = await cpiService.upsertIntegrationPackage({
             packageId: targetPkgId,
             packageName: spec.packageName,
-            packageDescription: `Dynamically created via Intent Planner AI Builder`
+            packageDescription: `Dynamically created via Intent Planner AI Builder`,
+            envContext: getEnvContext(req)
           });
           if (pkgRes.upsertAction === "CREATE") {
             executionLogs.push(`[SUCCESS] Package "${spec.packageName}" (ID: "${targetPkgId}") did not exist and was created dynamically via OData POST.`);
@@ -128,6 +145,7 @@ router.post("/create-iflow", async (req, res) => {
               iflowName: step.input.iflowName,
               packageId: step.input.packageId,
               artifactContentBase64: zip.artifactContentBase64,
+              envContext: getEnvContext(req)
             });
           } catch (upsertErr) {
             const errStr = String(upsertErr.response?.data?.error?.message?.value || upsertErr.message);
@@ -152,6 +170,7 @@ router.post("/create-iflow", async (req, res) => {
                 iflowName: step.input.iflowName,
                 packageId: step.input.packageId,
                 artifactContentBase64: uniqueZip.artifactContentBase64,
+                envContext: getEnvContext(req)
               });
               
               // Update subsequent steps in the spec with the new unique ID
@@ -181,6 +200,7 @@ router.post("/create-iflow", async (req, res) => {
             iflowId: step.input.iflowId,
             packageId: spec.packageName,
             artifactContentBase64: zip.artifactContentBase64,
+            envContext: getEnvContext(req)
           });
           executionLogs.push(`[SUCCESS] Designtime iFlow content parameters updated with ${resources.scripts.length} Groovy scripts.`);
         } 
@@ -189,6 +209,7 @@ router.post("/create-iflow", async (req, res) => {
           
           await cpiService.deployIntegrationDesigntimeArtifact({
             iflowId: step.input.iflowId,
+            envContext: getEnvContext(req)
           });
           executionLogs.push(`[SUCCESS] Active deployment task successfully dispatched to runtime.`);
           deploymentStatus = "ACTIVE";
@@ -265,7 +286,8 @@ router.post("/create-package", async (req, res) => {
     const result = await cpiService.upsertIntegrationPackage({
       packageId: derivedId,
       packageName: displayName,
-      packageDescription: packageDescription || `Created explicitly via iFlow Builder for "${displayName}"`
+      packageDescription: packageDescription || `Created explicitly via iFlow Builder for "${displayName}"`,
+      envContext: getEnvContext(req)
     });
 
     return res.status(200).json({

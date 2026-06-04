@@ -5,16 +5,16 @@ import { saveAs } from "file-saver";
 
 const BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://localhost:40005/sap";
 
-export default function PackagesAndIFlows() {
+export default function PackagesAndIFlows({ activeEnvName = "RUNTIME" }) {
   const [rawPackages, setRawPackages] = useState([]);
   const [packages, setPackages] = useState([]);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All"); // All, Standard, EventMesh, Custom
-  const [filterEnv, setFilterEnv] = useState("All"); // All, PRODUCTION, DEV, QA
+  const [filterEnv, setFilterEnv] = useState(activeEnvName); // All, PRODUCTION, DEV, QA
   const [sortBy, setSortBy] = useState("Last Modified"); // Last Modified, Name, iFlow Count
   const [loading, setLoading] = useState(true);
   const [expandedPackages, setExpandedPackages] = useState({});
-  const [currentEnv, setCurrentEnv] = useState("DEV");
+  const [currentEnv, setCurrentEnv] = useState(activeEnvName);
   const [tenantInfo, setTenantInfo] = useState({
     tenantName: "Trial Tenant",
     subaccount: "Trial Subaccount",
@@ -109,6 +109,11 @@ export default function PackagesAndIFlows() {
   };
 
   useEffect(() => {
+    setCurrentEnv(activeEnvName);
+    setFilterEnv(activeEnvName);
+  }, [activeEnvName]);
+
+  useEffect(() => {
     fetchTenantAndPackages();
 
     const interval = setInterval(() => {
@@ -117,7 +122,7 @@ export default function PackagesAndIFlows() {
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeEnvName]);
 
   // Sync enriched packages dynamically whenever raw data, environment, logs, or time range changes
   useEffect(() => {

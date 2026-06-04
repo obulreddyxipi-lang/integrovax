@@ -4,7 +4,7 @@ import axios from "axios";
 
 const AI_BASE_URL = process.env.REACT_APP_AI_BASE_URL || "http://localhost:40005/ai";
 
-export default function IFlowBuilder() {
+export default function IFlowBuilder({ activeEnvName = "RUNTIME" }) {
   const [prompt, setPrompt] = useState("Create an integration from S/4HANA to SuccessFactors Employee Central to sync employee master data. Trigger on employee creation or update and send data to SuccessFactors OData API.");
   const [packageId, setPackageId] = useState("EVENTMesh");
   const [customIflowName, setCustomIflowName] = useState("Fetch Northwind Employees");

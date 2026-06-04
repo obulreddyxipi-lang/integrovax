@@ -110,7 +110,7 @@ const MOCK_FLOWS = [
   }
 ];
 
-export default function MessageFlows() {
+export default function MessageFlows({ activeEnvName = "RUNTIME" }) {
   const [logs, setLogs] = useState([]);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [filters, setFilters] = useState({
@@ -146,7 +146,7 @@ export default function MessageFlows() {
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [activeEnvName]);
 
   const flows = useMemo(
     () => [...new Set(logs.map((l) => l.flowName).filter(Boolean))],

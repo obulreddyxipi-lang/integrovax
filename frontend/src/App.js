@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 import Sidebar from "./components/layout/Sidebar";
 import Overview from "./pages/Overview/Overview";
 import MessageFlows from "./pages/MessageFlows/MessageFlows";
@@ -9,9 +10,62 @@ import PackagesAndIFlows from "./pages/PackagesAndIFlows/PackagesAndIFlows";
 import IFlowBuilder from "./pages/IFlowBuilder/IFlowBuilder";
 import Simulators from "./pages/Simulators/Simulators";
 
+// Helper to get active env headers dynamically
+const getEnvHeaders = () => {
+  const envName = localStorage.getItem("integrovax_active_env") || "RUNTIME";
+  const savedEnvs = localStorage.getItem("integrovax_custom_environments");
+  if (!savedEnvs) return {};
+  
+  try {
+    const list = JSON.parse(savedEnvs);
+    const matched = list.find(e => e.name === envName);
+    if (!matched) return {};
+    
+    return {
+      "x-cpi-env-name": matched.name,
+      "x-cpi-base-url": matched.baseUrl || "",
+      "x-cpi-auth-type": matched.authType || "none",
+      "x-cpi-username": matched.username || "",
+      "x-cpi-password": matched.password || "",
+      "x-cpi-client-id": matched.clientId || "",
+      "x-cpi-client-secret": matched.clientSecret || "",
+      "x-cpi-token-url": matched.tokenUrl || "",
+      "x-cpi-api-key-name": matched.apiKeyName || "apiKey",
+      "x-cpi-api-key-value": matched.apiKeyValue || "",
+      "x-cpi-api-key-location": matched.apiKeyLocation || "header"
+    };
+  } catch (e) {
+    console.error("Failed to parse custom environments", e);
+    return {};
+  }
+};
+
+// Set up global request interceptor
+axios.interceptors.request.use(
+  (config) => {
+    const headers = getEnvHeaders();
+    Object.keys(headers).forEach((key) => {
+      if (headers[key]) {
+        config.headers[key] = headers[key];
+      }
+    });
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 export default function App() {
   const [tab, setTab] = useState("Overview");
-  const [env, setEnv] = useState("RUNTIME");
+  const [env, setEnv] = useState(() => {
+    return localStorage.getItem("integrovax_active_env") || "RUNTIME";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("integrovax_active_env", env);
+  }, [env]);
+
   const [searchFocused, setSearchFocused] = useState(false);
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
 
@@ -231,17 +285,17 @@ export default function App() {
   const renderPage = () => {
     switch (tab) {
       case "Overview":
-        return <Overview />;
+        return <Overview activeEnvName={env} />;
       case "Message Flows":
-        return <MessageFlows />;
+        return <MessageFlows activeEnvName={env} />;
       case "Error Analysis":
-        return <ErrorAnalysis />;
+        return <ErrorAnalysis activeEnvName={env} />;
       case "System Health":
-        return <SystemHealth />;
+        return <SystemHealth activeEnvName={env} />;
       case "Packages and iFlows":
-        return <PackagesAndIFlows />;
+        return <PackagesAndIFlows activeEnvName={env} />;
       case "iFlow Builder":
-        return <IFlowBuilder />;
+        return <IFlowBuilder activeEnvName={env} />;
       case "Simulators":
         return <Simulators activeEnvName={env} customEnvironments={customEnvs} />;
       default:

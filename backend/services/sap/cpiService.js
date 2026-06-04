@@ -6,24 +6,86 @@ function logDebug(message) {
   process.stdout.write(`[DEBUG] ${message}\n`);
 }
 
-function getCPIUrl(path) {
-  let base = process.env.CPI_BASE_URL || "";
-  base = base.replace(/\/$/, "");
-  return `${base}${path}`;
+// Dynamically construct config using incoming context and backend .env fallback
+function getActiveConfig(envContext) {
+  let baseUrl = envContext?.baseUrl || process.env.CPI_BASE_URL || "";
+  baseUrl = baseUrl.replace(/\/$/, "");
+  
+  // Prevent loopbacks if headers mistakenly point to backend port 40005
+  if (!baseUrl || baseUrl.includes("localhost:40005") || envContext?.envName === "RUNTIME") {
+    baseUrl = (process.env.CPI_BASE_URL || "").replace(/\/$/, "");
+  }
+
+  const authType = envContext?.authType || (process.env.TOKEN_URL ? "oauth" : "none");
+  
+  return {
+    envName: envContext?.envName || "RUNTIME",
+    baseUrl,
+    authType,
+    username: envContext?.username || "",
+    password: envContext?.password || "",
+    clientId: envContext?.clientId || process.env.CLIENT_ID || "",
+    clientSecret: envContext?.clientSecret || process.env.CLIENT_SECRET || "",
+    tokenUrl: envContext?.tokenUrl || process.env.TOKEN_URL || "",
+    apiKeyName: envContext?.apiKeyName || "apiKey",
+    apiKeyValue: envContext?.apiKeyValue || "",
+    apiKeyLocation: envContext?.apiKeyLocation || "header"
+  };
 }
-async function getToken() {
+
+// Resilient fallback check to run in Mock Mode if no valid credentials exist
+function shouldMock(config) {
+  if (config.authType === "none") {
+    if (!process.env.TOKEN_URL && !process.env.CLIENT_ID && !process.env.CLIENT_SECRET) {
+      return true;
+    }
+  }
+  if (config.authType === "oauth") {
+    if (!config.tokenUrl || !config.clientId || !config.clientSecret) {
+      return true;
+    }
+  }
+  if (config.authType === "basic") {
+    if (!config.username || !config.password) {
+      return true;
+    }
+  }
+  if (config.authType === "apikey") {
+    if (!config.apiKeyValue) {
+      return true;
+    }
+  }
+  if (!config.baseUrl) {
+    return true;
+  }
+  return false;
+}
+
+// Construct final target URL with optional query api key appending
+function getCPIUrl(path, config) {
+  const base = config.baseUrl.replace(/\/$/, "");
+  let url = `${base}${path}`;
+  if (config.authType === "apikey" && config.apiKeyLocation === "query") {
+    const separator = url.includes("?") ? "&" : "?";
+    url = `${url}${separator}${config.apiKeyName}=${encodeURIComponent(config.apiKeyValue)}`;
+  }
+  return url;
+}
+
+// Dynamic OAuth handshake
+async function getToken(config) {
   logDebug("🔑 Starting OAuth Token Handshake...");
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
-    logDebug("⚠️ [WARNING] OAuth environment variables are not configured in runtime .env. Fallback to mock authorization mode.");
+  if (!config.tokenUrl || !config.clientId || !config.clientSecret) {
+    logDebug("⚠️ [WARNING] OAuth environment credentials are not configured. Fallback to mock authorization token.");
     return "mock-oauth-token-integrovax-runtime";
   }
   const res = await axios.post(
-    process.env.TOKEN_URL,
+    config.tokenUrl,
     new URLSearchParams({ grant_type: "client_credentials" }),
     {
       auth: {
-        username: process.env.CLIENT_ID,
-        password: process.env.CLIENT_SECRET
+        username: config.clientId,
+        password: config.clientSecret
       },
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -35,18 +97,54 @@ async function getToken() {
   return res.data.access_token;
 }
 
-async function testConnection() {
-  const token = await getToken();
-  const baseUrl = (process.env.CPI_BASE_URL || "").replace(/\/$/, "");
-  return {
-    ok: true,
-    cpiBaseUrl: baseUrl || null,
-    tokenPresent: Boolean(token),
+// Get appropriate headers based on authentication type
+async function getAuthHeaders(config) {
+  const headers = {
+    Accept: "application/json"
   };
+  
+  if (config.authType === "oauth") {
+    const token = await getToken(config);
+    headers["Authorization"] = `Bearer ${token}`;
+  } else if (config.authType === "basic") {
+    const creds = Buffer.from(`${config.username}:${config.password}`).toString("base64");
+    headers["Authorization"] = `Basic ${creds}`;
+  } else if (config.authType === "apikey" && config.apiKeyLocation === "header") {
+    headers[config.apiKeyName] = config.apiKeyValue;
+  }
+  
+  return headers;
 }
-async function fetchMessageProcessingLogs() {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
-    logDebug("📋 Returning Mock Runtime Message Processing Logs.");
+
+async function testConnection(envContext) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
+    return {
+      ok: true,
+      cpiBaseUrl: config.baseUrl || null,
+      tokenPresent: false,
+      isMock: true
+    };
+  }
+  try {
+    const authHeaders = await getAuthHeaders(config);
+    const url = getCPIUrl("/api/v1/", config);
+    await axios.get(url, { headers: authHeaders });
+    return {
+      ok: true,
+      cpiBaseUrl: config.baseUrl,
+      tokenPresent: true,
+      isMock: false
+    };
+  } catch (err) {
+    throw new Error(`Connection verification failed: ${err.message}`);
+  }
+}
+
+async function fetchMessageProcessingLogs(envContext) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
+    logDebug(`📋 Returning Mock Runtime Message Processing Logs for ${config.envName}.`);
     return [
       {
         messageGuid: "MSG-9A2F8B10-C3E4-4D2A-B901-523F16E8",
@@ -64,15 +162,15 @@ async function fetchMessageProcessingLogs() {
         status: "FAILED",
         logStart: new Date(Date.now() - 7200000).toISOString(),
         logEnd: new Date(Date.now() - 7185000).toISOString(),
-        errorText: "HTTP connection timed out after 30000ms. Remote service endpoint is unreachable."
+        errorText: `HTTP connection timed out after 30000ms. Remote service endpoint is unreachable on environment: ${config.envName}.`
       }
     ];
   }
 
-  const token = await getToken();
-  const url = getCPIUrl("/api/v1/MessageProcessingLogs?$top=200&$orderby=LogStart desc");
+  const authHeaders = await getAuthHeaders(config);
+  const url = getCPIUrl("/api/v1/MessageProcessingLogs?$top=200&$orderby=LogStart desc", config);
   const response = await axios.get(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/atom+xml" }
+    headers: { ...authHeaders, Accept: "application/atom+xml" }
   });
   const parser = new xml2js.Parser({ explicitArray: false });
   const parsed = await parser.parseStringPromise(response.data);
@@ -98,28 +196,30 @@ async function fetchMessageProcessingLogs() {
   });
 }
 
-async function fetchIntegrationPackages() {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
-    logDebug("📦 Returning Mock Runtime Integration Packages.");
+async function fetchIntegrationPackages(envContext) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
+    logDebug(`📦 Returning Mock Runtime Integration Packages for environment: ${config.envName}.`);
     return [
-      { Id: "Integrovax_Core_Package", Name: "IntegrovaX Core Integration Package", ShortText: "Standard mapping profiles and orchestration services" },
-      { Id: "SuccessFactors_Employee_Sync", Name: "SuccessFactors Employee Synchronization Package", ShortText: "Design time artifacts for HR data consolidation" }
+      { Id: "Integrovax_Core_Package", Name: "IntegrovaX Core Integration Package", ShortText: `Standard mapping profiles and orchestration services on ${config.envName}` },
+      { Id: "SuccessFactors_Employee_Sync", Name: "SuccessFactors Employee Synchronization Package", ShortText: `Design time artifacts for HR data consolidation on ${config.envName}` }
     ];
   }
 
   logDebug("📦 Requesting Master Integration Packages...");
-  const token = await getToken();
-  const url = getCPIUrl("/api/v1/IntegrationPackages?$format=json");
+  const authHeaders = await getAuthHeaders(config);
+  const url = getCPIUrl("/api/v1/IntegrationPackages?$format=json", config);
   const response = await axios.get(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }
+    headers: { ...authHeaders, Accept: "application/json" }
   });
   const results = response.data?.d?.results || response.data?.value || [];
   logDebug(`📊 Total Packages Discovered: ${results.length}`);
   return results;
 }
 
-async function fetchAllDesigntimeArtifacts() {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function fetchAllDesigntimeArtifacts(envContext) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     return [
       { packageId: "Integrovax_Core_Package", iflowId: "Payment_Integration_Flow", iflowName: "Payment Integration Flow", version: "1.0.4" },
       { packageId: "SuccessFactors_Employee_Sync", iflowId: "Salesforce_Employee_Sync", iflowName: "Salesforce Employee Sync", version: "2.1.0" }
@@ -127,10 +227,10 @@ async function fetchAllDesigntimeArtifacts() {
   }
 
   try {
-    const token = await getToken();
-    const url = getCPIUrl("/api/v1/IntegrationRuntimeArtifacts?$format=json");
+    const authHeaders = await getAuthHeaders(config);
+    const url = getCPIUrl("/api/v1/IntegrationRuntimeArtifacts?$format=json", config);
     const response = await axios.get(url, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }
+      headers: { ...authHeaders, Accept: "application/json" }
     });
     const artifacts = response.data?.d?.results || response.data?.value || [];
     return artifacts
@@ -147,8 +247,9 @@ async function fetchAllDesigntimeArtifacts() {
   }
 }
 
-async function fetchPackagesWithNestedIflows() {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function fetchPackagesWithNestedIflows(envContext) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     return [
       {
         packageId: "Integrovax_Core_Package",
@@ -165,8 +266,8 @@ async function fetchPackagesWithNestedIflows() {
 
   logDebug("\n🚀🚀🚀 FETCH PACKAGES WITH NESTED IFLOWS TRIGGERED 🚀🚀🚀");
   try {
-    const token = await getToken();
-    const packages = await fetchIntegrationPackages();
+    const authHeaders = await getAuthHeaders(config);
+    const packages = await fetchIntegrationPackages(envContext);
     
     logDebug("⚡ Commencing Asynchronous Design-time Loop Pipeline...");
     
@@ -175,11 +276,11 @@ async function fetchPackagesWithNestedIflows() {
       logDebug(`\n🔄 [INDEX ${index}] Querying Package Technical ID: "${pkgId}"`);
       
       const safePkgId = encodeURIComponent(pkgId);
-      const url = getCPIUrl(`/api/v1/IntegrationPackages('${safePkgId}')/IntegrationDesigntimeArtifacts?$format=json`);
+      const url = getCPIUrl(`/api/v1/IntegrationPackages('${safePkgId}')/IntegrationDesigntimeArtifacts?$format=json`, config);
       
       try {
         const response = await axios.get(url, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }
+          headers: { ...authHeaders, Accept: "application/json" }
         });
         
         let artifacts = response.data?.d?.results || response.data?.value || response.data || [];
@@ -220,13 +321,13 @@ async function fetchPackagesWithNestedIflows() {
   }
 }
 
-async function getCsrfToken({ token }) {
-  // Some CPI tenants require CSRF token for OData POST/PUT even with OAuth.
+async function getCsrfToken({ config }) {
   try {
-    const url = getCPIUrl("/api/v1/");
+    const url = getCPIUrl("/api/v1/", config);
+    const authHeaders = await getAuthHeaders(config);
     const res = await axios.get(url, {
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...authHeaders,
         "x-csrf-token": "Fetch",
         Accept: "application/json",
       },
@@ -239,15 +340,17 @@ async function getCsrfToken({ token }) {
   }
 }
 
-async function createIntegrationDesigntimeArtifact({ iflowId, iflowName, packageId, artifactContentBase64 }) {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function createIntegrationDesigntimeArtifact({ iflowId, iflowName, packageId, artifactContentBase64, envContext }) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     logDebug(`[MOCK] Created designtime artifact: "${iflowId}" in package "${packageId}"`);
     return { Id: iflowId, Name: iflowName, PackageId: packageId };
   }
-  const token = await getToken();
-  const { csrfToken, cookies } = await getCsrfToken({ token });
+  
+  const authHeaders = await getAuthHeaders(config);
+  const { csrfToken, cookies } = await getCsrfToken({ config });
 
-  const url = getCPIUrl("/api/v1/IntegrationDesigntimeArtifacts");
+  const url = getCPIUrl("/api/v1/IntegrationDesigntimeArtifacts", config);
   const payload = {
     Id: iflowId,
     Name: iflowName || iflowId,
@@ -256,7 +359,7 @@ async function createIntegrationDesigntimeArtifact({ iflowId, iflowName, package
   };
 
   const headers = {
-    Authorization: `Bearer ${token}`,
+    ...authHeaders,
     Accept: "application/json",
     "Content-Type": "application/json",
   };
@@ -267,17 +370,19 @@ async function createIntegrationDesigntimeArtifact({ iflowId, iflowName, package
   return res.data;
 }
 
-async function updateIntegrationDesigntimeArtifact({ iflowId, packageId, artifactContentBase64 }) {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function updateIntegrationDesigntimeArtifact({ iflowId, packageId, artifactContentBase64, envContext }) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     logDebug(`[MOCK] Updated designtime artifact: "${iflowId}" in package "${packageId}"`);
     return { Id: iflowId, PackageId: packageId };
   }
-  const token = await getToken();
-  const { csrfToken, cookies } = await getCsrfToken({ token });
+  
+  const authHeaders = await getAuthHeaders(config);
+  const { csrfToken, cookies } = await getCsrfToken({ config });
 
-  const url = getCPIUrl(`/api/v1/IntegrationDesigntimeArtifacts(Id='${encodeURIComponent(iflowId)}',Version='Active')/$value`);
+  const url = getCPIUrl(`/api/v1/IntegrationDesigntimeArtifacts(Id='${encodeURIComponent(iflowId)}',Version='Active')/$value`, config);
   const headers = {
-    Authorization: `Bearer ${token}`,
+    ...authHeaders,
     "Content-Type": "application/octet-stream",
   };
   if (csrfToken) headers["x-csrf-token"] = csrfToken;
@@ -288,17 +393,19 @@ async function updateIntegrationDesigntimeArtifact({ iflowId, packageId, artifac
   return res.data;
 }
 
-async function deployIntegrationDesigntimeArtifact({ iflowId }) {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function deployIntegrationDesigntimeArtifact({ iflowId, envContext }) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     logDebug(`[MOCK] Deployed designtime artifact: "${iflowId}"`);
     return { Id: iflowId, Status: "Deployed" };
   }
-  const token = await getToken();
-  const { csrfToken, cookies } = await getCsrfToken({ token });
+  
+  const authHeaders = await getAuthHeaders(config);
+  const { csrfToken, cookies } = await getCsrfToken({ config });
 
-  const url = getCPIUrl(`/api/v1/DeployIntegrationDesigntimeArtifact?Id='${encodeURIComponent(iflowId)}'&Version='Active'`);
+  const url = getCPIUrl(`/api/v1/DeployIntegrationDesigntimeArtifact?Id='${encodeURIComponent(iflowId)}'&Version='Active'`, config);
   const headers = {
-    Authorization: `Bearer ${token}`,
+    ...authHeaders,
     Accept: "application/json",
   };
   if (csrfToken) headers["x-csrf-token"] = csrfToken;
@@ -308,20 +415,21 @@ async function deployIntegrationDesigntimeArtifact({ iflowId }) {
   return res.data;
 }
 
-async function checkDesigntimeArtifactExists({ iflowId, packageId }) {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function checkDesigntimeArtifactExists({ iflowId, packageId, envContext }) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     return true;
   }
   try {
-    const token = await getToken();
+    const authHeaders = await getAuthHeaders(config);
     let url;
     if (packageId) {
-      url = getCPIUrl(`/api/v1/IntegrationPackages('${encodeURIComponent(packageId)}')/IntegrationDesigntimeArtifacts?$format=json`);
+      url = getCPIUrl(`/api/v1/IntegrationPackages('${encodeURIComponent(packageId)}')/IntegrationDesigntimeArtifacts?$format=json`, config);
     } else {
-      url = getCPIUrl(`/api/v1/IntegrationDesigntimeArtifacts?$format=json`);
+      url = getCPIUrl(`/api/v1/IntegrationDesigntimeArtifacts?$format=json`, config);
     }
     const headers = {
-      Authorization: `Bearer ${token}`,
+      ...authHeaders,
       Accept: "application/json",
     };
     const res = await axios.get(url, { headers });
@@ -332,29 +440,30 @@ async function checkDesigntimeArtifactExists({ iflowId, packageId }) {
   }
 }
 
-async function upsertIntegrationDesigntimeArtifact({ iflowId, iflowName, packageId, artifactContentBase64 }) {
-  const exists = await checkDesigntimeArtifactExists({ iflowId, packageId });
+async function upsertIntegrationDesigntimeArtifact({ iflowId, iflowName, packageId, artifactContentBase64, envContext }) {
+  const exists = await checkDesigntimeArtifactExists({ iflowId, packageId, envContext });
   if (exists) {
     logDebug(`🔄 Designtime artifact [${iflowId}] exists in package [${packageId}]. Executing OData PUT update...`);
-    await updateIntegrationDesigntimeArtifact({ iflowId, packageId, artifactContentBase64 });
+    await updateIntegrationDesigntimeArtifact({ iflowId, packageId, artifactContentBase64, envContext });
     return { upsertAction: "UPDATE", ok: true };
   } else {
     logDebug(`🆕 Designtime artifact [${iflowId}] does not exist in package [${packageId}]. Executing OData POST creation...`);
-    const data = await createIntegrationDesigntimeArtifact({ iflowId, iflowName, packageId, artifactContentBase64 });
+    const data = await createIntegrationDesigntimeArtifact({ iflowId, iflowName, packageId, artifactContentBase64, envContext });
     return { upsertAction: "CREATE", ok: true, data };
   }
 }
 
-async function checkPackageExists({ packageId }) {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function checkPackageExists({ packageId, envContext }) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     return true;
   }
   try {
-    const token = await getToken();
+    const authHeaders = await getAuthHeaders(config);
     const safeId = encodeURIComponent(packageId);
-    const url = getCPIUrl(`/api/v1/IntegrationPackages('${safeId}')?$format=json`);
+    const url = getCPIUrl(`/api/v1/IntegrationPackages('${safeId}')?$format=json`, config);
     const headers = {
-      Authorization: `Bearer ${token}`,
+      ...authHeaders,
       Accept: "application/json",
     };
     const res = await axios.get(url, { headers });
@@ -364,15 +473,17 @@ async function checkPackageExists({ packageId }) {
   }
 }
 
-async function createIntegrationPackage({ packageId, packageName, packageDescription }) {
-  if (!process.env.TOKEN_URL || !process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+async function createIntegrationPackage({ packageId, packageName, packageDescription, envContext }) {
+  const config = getActiveConfig(envContext);
+  if (shouldMock(config)) {
     logDebug(`[MOCK] Created integration package: "${packageId}"`);
     return { Id: packageId, Name: packageName };
   }
-  const token = await getToken();
-  const { csrfToken, cookies } = await getCsrfToken({ token });
+  
+  const authHeaders = await getAuthHeaders(config);
+  const { csrfToken, cookies } = await getCsrfToken({ config });
 
-  const url = getCPIUrl("/api/v1/IntegrationPackages");
+  const url = getCPIUrl("/api/v1/IntegrationPackages", config);
   const payload = {
     Id: packageId,
     Name: packageName || packageId,
@@ -381,7 +492,7 @@ async function createIntegrationPackage({ packageId, packageName, packageDescrip
   };
 
   const headers = {
-    Authorization: `Bearer ${token}`,
+    ...authHeaders,
     Accept: "application/json",
     "Content-Type": "application/json",
   };
@@ -392,14 +503,14 @@ async function createIntegrationPackage({ packageId, packageName, packageDescrip
   return res.data;
 }
 
-async function upsertIntegrationPackage({ packageId, packageName, packageDescription }) {
-  const exists = await checkPackageExists({ packageId });
+async function upsertIntegrationPackage({ packageId, packageName, packageDescription, envContext }) {
+  const exists = await checkPackageExists({ packageId, envContext });
   if (exists) {
     logDebug(`🔄 Integration package [${packageId}] already exists. Reusing it.`);
     return { upsertAction: "REUSE", ok: true };
   } else {
     logDebug(`🆕 Integration package [${packageId}] does not exist. Creating via OData POST...`);
-    const data = await createIntegrationPackage({ packageId, packageName, packageDescription });
+    const data = await createIntegrationPackage({ packageId, packageName, packageDescription, envContext });
     return { upsertAction: "CREATE", ok: true, data };
   }
 }

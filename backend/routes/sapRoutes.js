@@ -3,6 +3,22 @@ const router = express.Router();
 const axios = require('axios');
 const cpiService = require('../services/sap/cpiService');
 
+const getEnvContext = (req) => {
+  return {
+    envName: req.headers['x-cpi-env-name'],
+    baseUrl: req.headers['x-cpi-base-url'],
+    authType: req.headers['x-cpi-auth-type'],
+    username: req.headers['x-cpi-username'],
+    password: req.headers['x-cpi-password'],
+    clientId: req.headers['x-cpi-client-id'],
+    clientSecret: req.headers['x-cpi-client-secret'],
+    tokenUrl: req.headers['x-cpi-token-url'],
+    apiKeyName: req.headers['x-cpi-api-key-name'],
+    apiKeyValue: req.headers['x-cpi-api-key-value'],
+    apiKeyLocation: req.headers['x-cpi-api-key-location'],
+  };
+};
+
 // POST http://localhost:40005/sap/iflows/generate
 // Body: { iflowId, iflowName }
 router.post('/iflows/generate', async (req, res) => {
@@ -34,6 +50,7 @@ router.post('/iflows/create', async (req, res) => {
       iflowName,
       packageId,
       artifactContentBase64,
+      envContext: getEnvContext(req),
     });
     res.json({ ok: true, data });
   } catch (err) {
@@ -61,10 +78,14 @@ router.post('/iflows/deploy', async (req, res) => {
       iflowName,
       packageId,
       artifactContentBase64,
+      envContext: getEnvContext(req),
     });
 
     // Step 2: Active Deploy
-    const deployRes = await cpiService.deployIntegrationDesigntimeArtifact({ iflowId });
+    const deployRes = await cpiService.deployIntegrationDesigntimeArtifact({
+      iflowId,
+      envContext: getEnvContext(req),
+    });
 
     res.json({
       ok: true,
@@ -79,7 +100,7 @@ router.post('/iflows/deploy', async (req, res) => {
 // Handles: GET http://localhost:40005/sap/health
 router.get('/health', async (req, res) => {
   try {
-    const data = await cpiService.testConnection();
+    const data = await cpiService.testConnection(getEnvContext(req));
     res.json(data);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -89,7 +110,7 @@ router.get('/health', async (req, res) => {
 // Handles: GET http://localhost:4000/sap/logs
 router.get('/logs', async (req, res) => {
   try {
-    const logs = await cpiService.fetchMessageProcessingLogs();
+    const logs = await cpiService.fetchMessageProcessingLogs(getEnvContext(req));
     res.json({ count: logs.length, data: logs });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -99,7 +120,7 @@ router.get('/logs', async (req, res) => {
 // Handles: GET http://localhost:4000/sap/packages
 router.get('/packages', async (req, res) => {
   try {
-    const data = await cpiService.fetchIntegrationPackages();
+    const data = await cpiService.fetchIntegrationPackages(getEnvContext(req));
     res.json({ count: data.length, data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -109,7 +130,7 @@ router.get('/packages', async (req, res) => {
 // Handles: GET http://localhost:4000/sap/iflows
 router.get('/iflows', async (req, res) => {
   try {
-    const data = await cpiService.fetchAllDesigntimeArtifacts();
+    const data = await cpiService.fetchAllDesigntimeArtifacts(getEnvContext(req));
     res.json({ count: data.length, data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -119,7 +140,7 @@ router.get('/iflows', async (req, res) => {
 // Handles: GET http://localhost:4000/sap/packages-with-iflows
 router.get('/packages-with-iflows', async (req, res) => {
   try {
-    const data = await cpiService.fetchPackagesWithNestedIflows();
+    const data = await cpiService.fetchPackagesWithNestedIflows(getEnvContext(req));
     res.json({ count: data.length, data });
   } catch (err) {
     res.status(500).json({ error: err.message });

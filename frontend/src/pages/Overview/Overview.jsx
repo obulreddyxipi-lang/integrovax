@@ -10,7 +10,7 @@ import bannerImg from "../../assets/Banner.png";
 
 const BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://localhost:40005/sap";
 
-export default function Overview() {
+export default function Overview({ activeEnvName = "RUNTIME" }) {
   const [activeCopilotTab, setActiveCopilotTab] = useState("Ask Anything");
   const [promptText, setPromptText] = useState("");
   const [timeRange, setTimeRange] = useState("Last 7 Days");
@@ -57,7 +57,7 @@ export default function Overview() {
   // Initial Sync
   useEffect(() => {
     fetchLiveData();
-  }, []);
+  }, [activeEnvName]);
 
   // background polling handler based on autoSync status
   useEffect(() => {
