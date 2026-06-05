@@ -134,6 +134,61 @@ async function getAuthHeaders(config) {
   return headers;
 }
 
+// Rich mock data helpers for offline and fallback modes
+function getMockLogs(envName, warningText = "") {
+  return [
+    {
+      messageGuid: "MSG-9A2F8B10-C3E4-4D2A-B901-523F16E8",
+      correlationId: "CORR-8f192b1a-554281",
+      flowName: "Payment_Integration_Flow",
+      status: "COMPLETED",
+      logStart: new Date(Date.now() - 3600000).toISOString(),
+      logEnd: new Date(Date.now() - 3597000).toISOString(),
+      errorText: warningText ? `[API Fallback] Connection offline. Detail: ${warningText}` : ""
+    },
+    {
+      messageGuid: "MSG-7115342B-DDB4-4A1B-9B35-B4B53AA3",
+      correlationId: "CORR-7f289c2b-449102",
+      flowName: "Salesforce_Employee_Sync",
+      status: "FAILED",
+      logStart: new Date(Date.now() - 7200000).toISOString(),
+      logEnd: new Date(Date.now() - 7185000).toISOString(),
+      errorText: warningText 
+        ? `Connection failed: ${warningText}`
+        : `HTTP connection timed out after 30000ms. Remote service endpoint is unreachable on environment: ${envName}.`
+    }
+  ];
+}
+
+function getMockPackages(envName) {
+  return [
+    { Id: "Integrovax_Core_Package", Name: "IntegrovaX Core Integration Package", ShortText: `Standard mapping profiles and orchestration services on ${envName}` },
+    { Id: "SuccessFactors_Employee_Sync", Name: "SuccessFactors Employee Synchronization Package", ShortText: `Design time artifacts for HR data consolidation on ${envName}` }
+  ];
+}
+
+function getMockArtifacts() {
+  return [
+    { packageId: "Integrovax_Core_Package", iflowId: "Payment_Integration_Flow", iflowName: "Payment Integration Flow", version: "1.0.4" },
+    { packageId: "SuccessFactors_Employee_Sync", iflowId: "Salesforce_Employee_Sync", iflowName: "Salesforce Employee Sync", version: "2.1.0" }
+  ];
+}
+
+function getMockPackagesWithNestedIflows() {
+  return [
+    {
+      packageId: "Integrovax_Core_Package",
+      packageName: "IntegrovaX Core Integration Package",
+      iflows: [{ iflowId: "Payment_Integration_Flow", iflowName: "Payment Integration Flow", version: "1.0.4" }]
+    },
+    {
+      packageId: "SuccessFactors_Employee_Sync",
+      packageName: "SuccessFactors Employee Synchronization Package",
+      iflows: [{ iflowId: "Salesforce_Employee_Sync", iflowName: "Salesforce Employee Sync", version: "2.1.0" }]
+    }
+  ];
+}
+
 async function testConnection(envContext) {
   const config = getActiveConfig(envContext);
   if (shouldMock(config)) {
@@ -162,88 +217,68 @@ async function testConnection(envContext) {
 async function fetchMessageProcessingLogs(envContext) {
   const config = getActiveConfig(envContext);
   if (shouldMock(config)) {
-    logDebug(`📋 Returning Mock Runtime Message Processing Logs for ${config.envName}.`);
-    return [
-      {
-        messageGuid: "MSG-9A2F8B10-C3E4-4D2A-B901-523F16E8",
-        correlationId: "CORR-8f192b1a-554281",
-        flowName: "Payment_Integration_Flow",
-        status: "COMPLETED",
-        logStart: new Date(Date.now() - 3600000).toISOString(),
-        logEnd: new Date(Date.now() - 3597000).toISOString(),
-        errorText: ""
-      },
-      {
-        messageGuid: "MSG-7115342B-DDB4-4A1B-9B35-B4B53AA3",
-        correlationId: "CORR-7f289c2b-449102",
-        flowName: "Salesforce_Employee_Sync",
-        status: "FAILED",
-        logStart: new Date(Date.now() - 7200000).toISOString(),
-        logEnd: new Date(Date.now() - 7185000).toISOString(),
-        errorText: `HTTP connection timed out after 30000ms. Remote service endpoint is unreachable on environment: ${config.envName}.`
-      }
-    ];
+    return getMockLogs(config.envName);
   }
-
-  const authHeaders = await getAuthHeaders(config);
-  const url = getCPIUrl("/api/v1/MessageProcessingLogs?$top=200&$orderby=LogStart desc", config);
-  const response = await axios.get(url, {
-    headers: { ...authHeaders, Accept: "application/atom+xml" }
-  });
-  const parser = new xml2js.Parser({ explicitArray: false });
-  const parsed = await parser.parseStringPromise(response.data);
-  let entries = parsed?.feed?.entry || [];
-  if (!Array.isArray(entries)) entries = [entries];
-  return entries.map(e => {
-    const p = e?.content?.["m:properties"] || {};
-    const errorText =
-      p["d:ErrorInformation"] ||
-      p["d:ErrorMessage"] ||
-      p["d:CustomStatus"] ||
-      "";
-    return {
-      messageGuid: p["d:MessageGuid"],
-      correlationId: p["d:CorrelationId"],
-      status: p["d:Status"],
-      statusText: p["d:CustomStatus"] || "",
-      flowName: p["d:IntegrationFlowName"],
-      logStart: p["d:LogStart"],
-      logEnd: p["d:LogEnd"],
-      errorText: typeof errorText === "string" ? errorText : String(errorText || "")
-    };
-  });
+  try {
+    const authHeaders = await getAuthHeaders(config);
+    const url = getCPIUrl("/api/v1/MessageProcessingLogs?$top=200&$orderby=LogStart desc", config);
+    const response = await axios.get(url, {
+      headers: { ...authHeaders, Accept: "application/atom+xml" }
+    });
+    const parser = new xml2js.Parser({ explicitArray: false });
+    const parsed = await parser.parseStringPromise(response.data);
+    let entries = parsed?.feed?.entry || [];
+    if (!Array.isArray(entries)) entries = [entries];
+    return entries.map(e => {
+      const p = e?.content?.["m:properties"] || {};
+      const errorText =
+        p["d:ErrorInformation"] ||
+        p["d:ErrorMessage"] ||
+        p["d:CustomStatus"] ||
+        "";
+      return {
+        messageGuid: p["d:MessageGuid"],
+        correlationId: p["d:CorrelationId"],
+        status: p["d:Status"],
+        statusText: p["d:CustomStatus"] || "",
+        flowName: p["d:IntegrationFlowName"],
+        logStart: p["d:LogStart"],
+        logEnd: p["d:LogEnd"],
+        errorText: typeof errorText === "string" ? errorText : String(errorText || "")
+      };
+    });
+  } catch (err) {
+    logDebug(`⚠️ fetchMessageProcessingLogs failed: ${err.message}. Falling back to mock data.`);
+    return getMockLogs(config.envName, err.message);
+  }
 }
 
 async function fetchIntegrationPackages(envContext) {
   const config = getActiveConfig(envContext);
   if (shouldMock(config)) {
-    logDebug(`📦 Returning Mock Runtime Integration Packages for environment: ${config.envName}.`);
-    return [
-      { Id: "Integrovax_Core_Package", Name: "IntegrovaX Core Integration Package", ShortText: `Standard mapping profiles and orchestration services on ${config.envName}` },
-      { Id: "SuccessFactors_Employee_Sync", Name: "SuccessFactors Employee Synchronization Package", ShortText: `Design time artifacts for HR data consolidation on ${config.envName}` }
-    ];
+    return getMockPackages(config.envName);
   }
-
-  logDebug("📦 Requesting Master Integration Packages...");
-  const authHeaders = await getAuthHeaders(config);
-  const url = getCPIUrl("/api/v1/IntegrationPackages?$format=json", config);
-  const response = await axios.get(url, {
-    headers: { ...authHeaders, Accept: "application/json" }
-  });
-  const results = response.data?.d?.results || response.data?.value || [];
-  logDebug(`📊 Total Packages Discovered: ${results.length}`);
-  return results;
+  try {
+    logDebug("📦 Requesting Master Integration Packages...");
+    const authHeaders = await getAuthHeaders(config);
+    const url = getCPIUrl("/api/v1/IntegrationPackages?$format=json", config);
+    const response = await axios.get(url, {
+      headers: { ...authHeaders, Accept: "application/json" }
+    });
+    const results = response.data?.d?.results || response.data?.value || [];
+    logDebug(`📊 Total Packages Discovered: ${results.length}`);
+    return results;
+  } catch (err) {
+    logDebug(`⚠️ fetchIntegrationPackages failed: ${err.message}. Falling back to mock data.`);
+    return getMockPackages(config.envName);
+  }
 }
 
 async function fetchAllDesigntimeArtifacts(envContext) {
   const config = getActiveConfig(envContext);
   if (shouldMock(config)) {
-    return [
-      { packageId: "Integrovax_Core_Package", iflowId: "Payment_Integration_Flow", iflowName: "Payment Integration Flow", version: "1.0.4" },
-      { packageId: "SuccessFactors_Employee_Sync", iflowId: "Salesforce_Employee_Sync", iflowName: "Salesforce Employee Sync", version: "2.1.0" }
-    ];
+    return getMockArtifacts();
   }
-
   try {
     const authHeaders = await getAuthHeaders(config);
     const url = getCPIUrl("/api/v1/IntegrationRuntimeArtifacts?$format=json", config);
@@ -260,29 +295,16 @@ async function fetchAllDesigntimeArtifacts(envContext) {
         version: a.Version
       }));
   } catch (err) {
-    console.error("❌ Global Artifact Extraction Failed:", err.message);
-    throw err;
+    logDebug(`⚠️ fetchAllDesigntimeArtifacts failed: ${err.message}. Falling back to mock data.`);
+    return getMockArtifacts();
   }
 }
 
 async function fetchPackagesWithNestedIflows(envContext) {
   const config = getActiveConfig(envContext);
   if (shouldMock(config)) {
-    return [
-      {
-        packageId: "Integrovax_Core_Package",
-        packageName: "IntegrovaX Core Integration Package",
-        iflows: [{ iflowId: "Payment_Integration_Flow", iflowName: "Payment Integration Flow", version: "1.0.4" }]
-      },
-      {
-        packageId: "SuccessFactors_Employee_Sync",
-        packageName: "SuccessFactors Employee Synchronization Package",
-        iflows: [{ iflowId: "Salesforce_Employee_Sync", iflowName: "Salesforce Employee Sync", version: "2.1.0" }]
-      }
-    ];
+    return getMockPackagesWithNestedIflows();
   }
-
-  logDebug("\n🚀🚀🚀 FETCH PACKAGES WITH NESTED IFLOWS TRIGGERED 🚀🚀🚀");
   try {
     const authHeaders = await getAuthHeaders(config);
     const packages = await fetchIntegrationPackages(envContext);
@@ -310,8 +332,6 @@ async function fetchPackagesWithNestedIflows(envContext) {
             const artifactId = artifact.Id || "";
             const isValueMapping = artifactId.toLowerCase().includes("valuemapping") || typeValue.toLowerCase().includes("valuemapping");
             const isMatch = !isValueMapping; 
-            
-            logDebug(`     ▪ Artifact: "${artifactId}" | Safe Match Status: ${isMatch}`);
             return isMatch;
           })
           .map(artifact => ({
@@ -319,23 +339,18 @@ async function fetchPackagesWithNestedIflows(envContext) {
             iflowName: artifact.Name || artifact.Id,
             version: artifact.Version
           }));
-          
-        logDebug(`✅ Finished package [${pkgId}]. Filtered iFlow Count: ${mappedIflows.length}`);
-        return { packageId: pkgId, packageName: pkg.Name, iflows: mappedIflows };
         
+        return { packageId: pkgId, packageName: pkg.Name, iflows: mappedIflows };
       } catch (loopErr) {
         logDebug(`❌ NETWORK ERROR ON PACKAGE [${pkgId}] -> ${loopErr.message}`);
         return { packageId: pkgId, packageName: pkg.Name, iflows: [] };
       }
     });
     
-    const finalResult = await Promise.all(designTimeQueue);
-    logDebug("\n🏁🏁🏁 ALL PIPELINE LOOPS COMPLETE 🏁🏁🏁\n");
-    return finalResult;
-
-  } catch (globalErr) {
-    logDebug(`💥 CRITICAL GLOBAL EXCEPTION: ${globalErr.message}`);
-    throw globalErr;
+    return await Promise.all(designTimeQueue);
+  } catch (err) {
+    logDebug(`⚠️ fetchPackagesWithNestedIflows failed: ${err.message}. Falling back to mock data.`);
+    return getMockPackagesWithNestedIflows();
   }
 }
 

@@ -187,6 +187,7 @@ export default function App() {
 
   const [showEnvDropdown, setShowEnvDropdown] = useState(false);
   const [showEnvModal, setShowEnvModal] = useState(false);
+  const [editingEnvName, setEditingEnvName] = useState(null);
 
   // Form State for Adding New Environment
   const [newEnvName, setNewEnvName] = useState("");
@@ -212,10 +213,6 @@ export default function App() {
       alert("Name and URL are required.");
       return;
     }
-    if (customEnvs.some(item => item.name.toUpperCase() === newEnvName.trim().toUpperCase())) {
-      alert("An environment with this name already exists.");
-      return;
-    }
 
     const newEnv = {
       name: newEnvName.trim().toUpperCase(),
@@ -231,21 +228,43 @@ export default function App() {
       apiKeyLocation: newEnvApiKeyLocation
     };
 
-    const nextList = [...customEnvs, newEnv];
+    let nextList;
+    if (editingEnvName) {
+      nextList = customEnvs.map(item => item.name === editingEnvName ? newEnv : item);
+      
+      // Add dynamic notification
+      const newNotif = {
+        id: Date.now() + Math.random(),
+        type: "success",
+        title: "Environment Updated",
+        desc: `Environment "${newEnvName.trim().toUpperCase()}" configuration updated`,
+        time: getFormattedTime(),
+        unread: true
+      };
+      setNotifications(prev => [newNotif, ...prev]);
+    } else {
+      if (customEnvs.some(item => item.name.toUpperCase() === newEnvName.trim().toUpperCase())) {
+        alert("An environment with this name already exists.");
+        return;
+      }
+      nextList = [...customEnvs, newEnv];
+      
+      // Add dynamic notification
+      const newNotif = {
+        id: Date.now() + Math.random(),
+        type: "success",
+        title: "Environment Configured",
+        desc: `Environment "${newEnvName.trim().toUpperCase()}" created and saved`,
+        time: getFormattedTime(),
+        unread: true
+      };
+      setNotifications(prev => [newNotif, ...prev]);
+    }
+
     saveEnvironments(nextList);
     
-    // Add dynamic notification
-    const newNotif = {
-      id: Date.now() + Math.random(),
-      type: "success",
-      title: "Environment Configured",
-      desc: `Environment "${newEnvName.trim().toUpperCase()}" created and saved`,
-      time: getFormattedTime(),
-      unread: true
-    };
-    setNotifications(prev => [newNotif, ...prev]);
-    
     // Reset Form
+    setEditingEnvName(null);
     setNewEnvName("");
     setNewEnvUrl("");
     setNewEnvAuthType("none");
@@ -257,6 +276,21 @@ export default function App() {
     setNewEnvApiKeyName("apiKey");
     setNewEnvApiKeyValue("");
     setNewEnvApiKeyLocation("header");
+  };
+
+  const handleStartEditEnv = (item) => {
+    setEditingEnvName(item.name);
+    setNewEnvName(item.name);
+    setNewEnvUrl(item.baseUrl);
+    setNewEnvAuthType(item.authType || "none");
+    setNewEnvUsername(item.username || "");
+    setNewEnvPassword(item.password || "");
+    setNewEnvClientId(item.clientId || "");
+    setNewEnvClientSecret(item.clientSecret || "");
+    setNewEnvTokenUrl(item.tokenUrl || "");
+    setNewEnvApiKeyName(item.apiKeyName || "apiKey");
+    setNewEnvApiKeyValue(item.apiKeyValue || "");
+    setNewEnvApiKeyLocation(item.apiKeyLocation || "header");
   };
 
   const handleDeleteEnv = (nameToDelete) => {
@@ -596,7 +630,21 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #E2E8F0", paddingBottom: "16px", marginBottom: "20px" }}>
               <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "700", color: "#021B45" }}>⚙️ Manage Simulation Environments</h3>
               <button 
-                onClick={() => setShowEnvModal(false)}
+                onClick={() => {
+                  setShowEnvModal(false);
+                  setEditingEnvName(null);
+                  setNewEnvName("");
+                  setNewEnvUrl("");
+                  setNewEnvAuthType("none");
+                  setNewEnvUsername("");
+                  setNewEnvPassword("");
+                  setNewEnvClientId("");
+                  setNewEnvClientSecret("");
+                  setNewEnvTokenUrl("");
+                  setNewEnvApiKeyName("apiKey");
+                  setNewEnvApiKeyValue("");
+                  setNewEnvApiKeyLocation("header");
+                }}
                 style={{ background: "transparent", border: "none", fontSize: "20px", cursor: "pointer", color: "#64748B" }}
               >✕</button>
             </div>
@@ -631,18 +679,34 @@ export default function App() {
                         </div>
                         <div style={{ fontSize: "10px", color: "#64748B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.baseUrl}</div>
                       </div>
-                      {e.name !== "PRODUCTION" && e.name !== "STAGE" && e.name !== "DEVELOPMENT" && (
+                      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                         <button 
-                          onClick={() => handleDeleteEnv(e.name)}
+                          onClick={() => handleStartEditEnv(e)}
                           style={{
                             background: "transparent",
                             border: "none",
-                            color: "#EF4444",
+                            color: "#0A84FF",
                             cursor: "pointer",
-                            fontSize: "14px"
+                            fontSize: "14px",
+                            padding: 0
                           }}
-                        >✕</button>
-                      )}
+                          title="Edit environment configuration"
+                        >✏️</button>
+                        {e.name !== "PRODUCTION" && e.name !== "STAGE" && e.name !== "DEVELOPMENT" && (
+                          <button 
+                            onClick={() => handleDeleteEnv(e.name)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#EF4444",
+                              cursor: "pointer",
+                              fontSize: "14px",
+                              padding: 0
+                            }}
+                            title="Delete environment"
+                          >✕</button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -650,15 +714,18 @@ export default function App() {
 
               {/* Right Column: Add Environment Form */}
               <form onSubmit={handleAddEnv} style={{ flex: 1.2, minWidth: "300px", display: "flex", flexDirection: "column", gap: "12px" }}>
-                <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>Add New Environment</span>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
+                  {editingEnvName ? `Edit Environment: ${editingEnvName}` : "Add New Environment"}
+                </span>
                 
                 <div>
                   <label style={{ fontSize: "11px", fontWeight: "bold", color: "#475569", display: "block", marginBottom: "4px" }}>Environment Name *</label>
                   <input 
-                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #CBD5E1", borderRadius: "8px", fontSize: "13px" }}
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #CBD5E1", borderRadius: "8px", fontSize: "13px", backgroundColor: editingEnvName ? "#F1F5F9" : "#FFFFFF", cursor: editingEnvName ? "not-allowed" : "text" }}
                     value={newEnvName}
                     onChange={(e) => setNewEnvName(e.target.value)}
                     placeholder="e.g. DEV_SANDBOX"
+                    disabled={Boolean(editingEnvName)}
                     required
                   />
                 </div>
@@ -797,8 +864,41 @@ export default function App() {
                     boxShadow: "0 2px 4px rgba(10,132,255,0.2)"
                   }}
                 >
-                  ➕ Add and Save Environment
+                  {editingEnvName ? "💾 Save Changes" : "➕ Add and Save Environment"}
                 </button>
+
+                {editingEnvName && (
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setEditingEnvName(null);
+                      setNewEnvName("");
+                      setNewEnvUrl("");
+                      setNewEnvAuthType("none");
+                      setNewEnvUsername("");
+                      setNewEnvPassword("");
+                      setNewEnvClientId("");
+                      setNewEnvClientSecret("");
+                      setNewEnvTokenUrl("");
+                      setNewEnvApiKeyName("apiKey");
+                      setNewEnvApiKeyValue("");
+                      setNewEnvApiKeyLocation("header");
+                    }}
+                    style={{
+                      backgroundColor: "transparent",
+                      color: "#64748B",
+                      border: "1px solid #CBD5E1",
+                      borderRadius: "8px",
+                      padding: "8px",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                      marginTop: "4px",
+                      fontSize: "12px"
+                    }}
+                  >
+                    Cancel Edit
+                  </button>
+                )}
               </form>
             </div>
           </div>
