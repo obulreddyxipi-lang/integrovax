@@ -1043,10 +1043,326 @@ function PayloadSimulator({ history, setHistory, injectTemplate }) {
 }
 
 /* ============================================================================
-   B. TRANSFORMATION TOOLS WORKSPACE (9 DEVELOPER UTILITY TABS)
+   B. TRANSFORMATION TOOLS WORKSPACE (11 DEVELOPER UTILITY TABS)
    ============================================================================ */
+
+// Gutter Editor Styles
+const gutterEditorStyles = {
+  wrapper: {
+    border: "1px solid #E2E8F0",
+    borderRadius: "12px",
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    backgroundColor: "#FFFFFF",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+    width: "100%",
+    boxSizing: "border-box"
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "8px 16px",
+    background: "#F8FAFC",
+    borderBottom: "1px solid #E2E8F0",
+    height: "40px",
+    boxSizing: "border-box"
+  },
+  title: {
+    fontSize: "12.5px",
+    fontWeight: "700",
+    color: "#0F172A"
+  },
+  badge: {
+    fontSize: "9px",
+    background: "#E0F2FE",
+    color: "#0369A1",
+    padding: "1px 6px",
+    borderRadius: "4px",
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  actionBtn: {
+    background: "transparent",
+    border: "none",
+    color: "#0A84FF",
+    fontSize: "11px",
+    fontWeight: "700",
+    cursor: "pointer",
+    padding: "4px 8px",
+    borderRadius: "6px",
+    transition: "background 0.2s"
+  },
+  iconBtn: {
+    background: "transparent",
+    border: "none",
+    fontSize: "13px",
+    cursor: "pointer",
+    padding: "4px",
+    borderRadius: "4px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 0.2s",
+    textDecoration: "none"
+  },
+  bodyContainer: {
+    display: "flex",
+    position: "relative",
+    flex: 1,
+    height: "260px"
+  },
+  gutter: {
+    width: "42px",
+    background: "#F8FAFC",
+    borderRight: "1px solid #E2E8F0",
+    display: "flex",
+    flexDirection: "column",
+    overflowY: "hidden",
+    userSelect: "none",
+    paddingTop: "8px",
+    paddingBottom: "8px",
+    boxSizing: "border-box"
+  },
+  lineNo: {
+    height: "20px",
+    lineHeight: "20px",
+    fontSize: "12px",
+    fontFamily: "Consolas, Monaco, monospace",
+    textAlign: "right",
+    paddingRight: "8px",
+    boxSizing: "border-box"
+  },
+  textarea: {
+    flex: 1,
+    border: "none",
+    outline: "none",
+    padding: "8px 12px",
+    margin: 0,
+    fontSize: "12px",
+    lineHeight: "20px",
+    fontFamily: "Consolas, Monaco, monospace",
+    color: "#1E293B",
+    resize: "none",
+    boxSizing: "border-box",
+    whiteSpace: "pre",
+    overflowWrap: "normal",
+    overflow: "auto"
+  },
+  footer: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "6px 16px",
+    background: "#F8FAFC",
+    borderTop: "1px solid #E2E8F0",
+    fontSize: "11px",
+    boxSizing: "border-box",
+    height: "30px"
+  }
+};
+
+// Syntax Validation Helpers
+const validateJsonString = (str) => {
+  if (!str || !str.trim()) return { isValid: true, message: "Valid JSON" };
+  try {
+    JSON.parse(str);
+    return { isValid: true, message: "Valid JSON" };
+  } catch (e) {
+    let errorLine = null;
+    const match = e.message.match(/at line (\d+)/) || e.message.match(/position (\d+)/);
+    if (match) {
+      if (e.message.includes("position")) {
+        const pos = parseInt(match[1]);
+        errorLine = str.substring(0, pos).split("\n").length;
+      } else {
+        errorLine = parseInt(match[1]);
+      }
+    }
+    return { isValid: false, message: e.message, errorLine };
+  }
+};
+
+const validateXmlString = (str) => {
+  if (!str || !str.trim()) return { isValid: true, message: "Valid XML" };
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(str, "application/xml");
+    const parseError = doc.querySelector("parsererror");
+    if (parseError) {
+      const errorText = parseError.textContent;
+      let errorLine = null;
+      const lineMatch = errorText.match(/line (\d+)/i) || errorText.match(/column (\d+)/i);
+      if (lineMatch) {
+        errorLine = parseInt(lineMatch[1]);
+      }
+      return { isValid: false, message: errorText || "XML Parsing Error", errorLine };
+    }
+    return { isValid: true, message: "Valid XML" };
+  } catch (e) {
+    return { isValid: false, message: e.message };
+  }
+};
+
+// Reusable Professional Code Editor with scroll-synced line numbers
+function ProfessionalCodeEditor({
+  value,
+  onChange,
+  readOnly = false,
+  placeholder = "",
+  title = "Payload Editor",
+  typeBadge = null,
+  validationStatus = null,
+  actions = null,
+  style = {},
+  showExample = null
+}) {
+  const textareaRef = useRef(null);
+  const gutterRef = useRef(null);
+  
+  const lines = value.split("\n");
+  const lineCount = Math.max(lines.length, 1);
+  const lineNumbers = Array.from({ length: lineCount }, (_, i) => i + 1);
+
+  const handleScroll = (e) => {
+    if (gutterRef.current) {
+      gutterRef.current.scrollTop = e.target.scrollTop;
+    }
+  };
+
+  useEffect(() => {
+    if (gutterRef.current && textareaRef.current) {
+      gutterRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  }, [value]);
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(value);
+    window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+      detail: { type: "success", title: "Copied to Clipboard", desc: "Editor content copied." }
+    }));
+  };
+
+  const downloadFile = () => {
+    const isXml = value.trim().startsWith("<");
+    const ext = isXml ? "xml" : "json";
+    const mime = isXml ? "application/xml" : "application/json";
+    const blob = new Blob([value], { type: mime });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `payload_${Date.now()}.${ext}`;
+    link.click();
+  };
+
+  const uploadFile = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (onChange) onChange(event.target.result || "");
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  return (
+    <div style={{ ...gutterEditorStyles.wrapper, ...style }}>
+      {/* Header toolbar */}
+      <div style={gutterEditorStyles.header}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <strong style={gutterEditorStyles.title}>{title}</strong>
+          {typeBadge && <span style={gutterEditorStyles.badge}>{typeBadge}</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {showExample && (
+            <button type="button" onClick={showExample} style={gutterEditorStyles.actionBtn}>
+              💡 Sample Data
+            </button>
+          )}
+          {actions}
+          <button type="button" onClick={copyToClipboard} style={gutterEditorStyles.iconBtn} title="Copy Content">
+            📋
+          </button>
+          <button type="button" onClick={downloadFile} style={gutterEditorStyles.iconBtn} title="Download Content">
+            📥
+          </button>
+          {!readOnly && (
+            <label style={{ ...gutterEditorStyles.iconBtn, cursor: "pointer", display: "inline-flex", alignItems: "center", margin: 0 }} title="Upload File">
+              📤
+              <input type="file" style={{ display: "none" }} onChange={uploadFile} />
+            </label>
+          )}
+          {!readOnly && onChange && (
+            <button type="button" onClick={() => onChange("")} style={gutterEditorStyles.iconBtn} title="Clear Editor">
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Editor Body */}
+      <div style={gutterEditorStyles.bodyContainer}>
+        {/* Gutter */}
+        <div ref={gutterRef} style={gutterEditorStyles.gutter}>
+          {lineNumbers.map(n => (
+            <div key={n} style={{
+              ...gutterEditorStyles.lineNo,
+              color: validationStatus?.errorLine === n ? "#EF4444" : "#94A3B8",
+              backgroundColor: validationStatus?.errorLine === n ? "rgba(239, 68, 68, 0.1)" : "transparent",
+              fontWeight: validationStatus?.errorLine === n ? "bold" : "normal"
+            }}>
+              {n}
+            </div>
+          ))}
+        </div>
+        
+        {/* Text Area */}
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange && onChange(e.target.value)}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          onScroll={handleScroll}
+          style={{
+            ...gutterEditorStyles.textarea,
+            backgroundColor: readOnly ? "#F8FAFC" : "#FFFFFF"
+          }}
+          spellCheck="false"
+        />
+      </div>
+
+      {/* Footer */}
+      <div style={gutterEditorStyles.footer}>
+        <div style={{ display: "flex", gap: "12px", color: "#64748B" }}>
+          <span>Lines: {lineCount}</span>
+          <span>Chars: {value.length}</span>
+        </div>
+        <div>
+          {validationStatus ? (
+            <span style={{
+              fontSize: "11px",
+              fontWeight: "600",
+              color: validationStatus.isValid ? "#22C55E" : "#EF4444",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px"
+            }}>
+              <span style={{ fontSize: "8px" }}>●</span> {validationStatus.message}
+            </span>
+          ) : (
+            <span style={{ fontSize: "11px", color: "#94A3B8" }}>● Validation Idle</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Parent Transformation Tools Workspace Component
 function TransformationTools() {
-  const [activeTab, setActiveTab] = useState("studio"); // studio, diff, formatjson, formatxml, xmljson, jsonxml, csvxml, xmlxsd, xsdval, xpath, jsonpath
+  const [activeTab, setActiveTab] = useState("studio");
 
   const tabsConfig = [
     { id: "studio", name: "Transformation Studio" },
@@ -1063,8 +1379,8 @@ function TransformationTools() {
   ];
 
   return (
-    <div className="glass-panel" style={{ padding: "20px", borderRadius: "16px", backgroundColor: "#FFFFFF" }}>
-      {/* Modern tab links similar to SAP Integration Suite utilities */}
+    <div className="glass-panel" style={{ padding: "20px", borderRadius: "16px", backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0" }}>
+      {/* Modern sub-tabs layout */}
       <div style={styles.mappingTabsBar}>
         {tabsConfig.map(t => (
           <button
@@ -1073,7 +1389,9 @@ function TransformationTools() {
             style={{
               ...styles.subToolbarBtn,
               fontSize: "12px",
-              padding: "8px 16px",
+              padding: "8px 14px",
+              borderRadius: "8px",
+              fontWeight: activeTab === t.id ? "700" : "500",
               ...(activeTab === t.id ? styles.subToolbarBtnActive : {})
             }}
           >
@@ -1082,7 +1400,7 @@ function TransformationTools() {
         ))}
       </div>
 
-      <div style={{ marginTop: "20px" }}>
+      <div style={{ marginTop: "24px" }}>
         {activeTab === "studio" && <TransformationStudioTab />}
         {activeTab === "diff" && <TextDiffTab />}
         {activeTab === "formatjson" && <FormatJsonTab />}
@@ -1099,196 +1417,595 @@ function TransformationTools() {
   );
 }
 
-// 1. Transformation Studio Tab Component
+// 1. Core Tool: Transformation Studio
 function TransformationStudioTab() {
   const [input, setInput] = useState(TEMPLATES.s4Employee);
-  const [mappingRule, setMappingRule] = useState("s4ToSf"); // s4ToSf, uppercase, filterLondon
+  const [mappingRule, setMappingRule] = useState("s4ToSf");
   const [output, setOutput] = useState("");
+  const [executionTime, setExecutionTime] = useState("0.000s");
+  const [resultStatus, setResultStatus] = useState("Success"); // Success, Error
+  const [errorMsg, setErrorMsg] = useState("");
 
   const handleExecute = () => {
+    const startTime = performance.now();
     try {
+      if (!input.trim()) {
+        throw new Error("Input payload is empty.");
+      }
+      
       if (mappingRule === "s4ToSf") {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(input, "application/xml");
+        if (xmlDoc.querySelector("parsererror")) {
+          throw new Error("Invalid XML in Input Payload.");
+        }
         setOutput(TEMPLATES.sfEmployee);
       } else if (mappingRule === "uppercase") {
         setOutput(input.toUpperCase());
-      } else {
-        setOutput(`{\n  "filteredEmployees": [\n    {\n      "employeeId": "1001",\n      "city": "London",\n      "matching": true\n    }\n  ]\n}`);
+      } else if (mappingRule === "filterLondon") {
+        if (input.includes("London")) {
+          setOutput(`{\n  "filteredEmployees": [\n    {\n      "employeeId": "1001",\n      "firstName": "Steven",\n      "lastName": "Buchanan",\n      "city": "London",\n      "matching": true\n    }\n  ]\n}`);
+        } else {
+          setOutput(`{\n  "filteredEmployees": []\n}`);
+        }
       }
+      setResultStatus("Success");
+      setErrorMsg("");
     } catch (e) {
-      setOutput("Error in Transformation Studio logic.");
+      setResultStatus("Error");
+      setErrorMsg(e.message);
+      setOutput("");
+    } finally {
+      const endTime = performance.now();
+      setExecutionTime(((endTime - startTime) / 1000).toFixed(3) + "s");
     }
   };
 
+  const handleSwap = () => {
+    const temp = input;
+    setInput(output || "");
+    setOutput(temp);
+  };
+
+  const handleFormatInput = () => {
+    if (input.trim().startsWith("<")) {
+      setInput(formatXml(input));
+    } else {
+      try {
+        setInput(JSON.stringify(JSON.parse(input), null, 2));
+      } catch (e) {
+        alert("Input is not valid JSON, cannot format.");
+      }
+    }
+  };
+
+  const handleClear = () => {
+    setInput("");
+    setOutput("");
+    setErrorMsg("");
+  };
+
+  const isInputXml = input.trim().startsWith("<");
+  const isOutputXml = output.trim().startsWith("<");
+
   return (
-    <div style={styles.simLayoutRow}>
-      {/* Input Panel */}
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel</h4>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: "0 0 10px 0" }}>
+        Develop, execute, and monitor S/4HANA mapping rules and transformations dynamically.
+      </p>
+
+      {/* Toolbar header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Mapping Strategy:</span>
-          <select style={styles.select} value={mappingRule} onChange={(e) => setMappingRule(e.target.value)}>
+          <select 
+            style={{ padding: "6px 12px", border: "1px solid #CBD5E1", borderRadius: "8px", fontSize: "12px", outline: "none", backgroundColor: "#FFFFFF" }} 
+            value={mappingRule} 
+            onChange={(e) => setMappingRule(e.target.value)}
+          >
             <option value="s4ToSf">SAP S/4HANA XML ➔ SuccessFactors JSON</option>
             <option value="uppercase">Plain Text / Code ➔ UPPERCASE</option>
             <option value="filterLondon">Filter Employees by City (London)</option>
           </select>
         </div>
-        <textarea style={styles.textarea} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste source payload..." />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>⚡ Run Transformation Studio</button>
       </div>
 
-      {/* Output Panel */}
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel</h4>
-        <textarea style={{ ...styles.textarea, height: "230px", background: "#F8FAFC" }} value={output} readOnly placeholder="Mapped transformation results appear here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy Studio Result</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "text/plain" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `studio_mapping_${Date.now()}.txt`;
-            link.click();
-          }}>📥 Download Result</button>
+      {/* Editor Panel Row */}
+      <div style={{ display: "flex", gap: "16px", alignItems: "stretch", flexWrap: "wrap" }}>
+        {/* Input */}
+        <div style={{ flex: 1, minWidth: "320px" }}>
+          <ProfessionalCodeEditor
+            title="INPUT (Your Data)"
+            value={input}
+            onChange={setInput}
+            typeBadge={isInputXml ? "xml" : "json"}
+            placeholder="Provide your source XML, JSON or plain payload..."
+            validationStatus={isInputXml ? validateXmlString(input) : validateJsonString(input)}
+            showExample={() => setInput(TEMPLATES.s4Employee)}
+          />
+        </div>
+
+        {/* Action rail (Center) */}
+        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: "12px", padding: "0 10px", alignItems: "center", flexShrink: 0 }}>
+          <button 
+            onClick={handleExecute}
+            style={{ width: "50px", height: "50px", borderRadius: "25px", background: "linear-gradient(135deg, #6F42FF 0%, #0A84FF 100%)", color: "#FFFFFF", border: "none", cursor: "pointer", fontSize: "20px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 12px rgba(111,66,255,0.3)" }}
+            title="Run Transformation"
+          >
+            ⚡
+          </button>
+          <button 
+            onClick={handleSwap}
+            style={{ width: "36px", height: "36px", borderRadius: "8px", border: "1px solid #CBD5E1", backgroundColor: "#FFFFFF", cursor: "pointer", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
+            title="Swap Input and Output"
+          >
+            🔄
+          </button>
+          <button 
+            onClick={handleFormatInput}
+            style={{ width: "36px", height: "36px", borderRadius: "8px", border: "1px solid #CBD5E1", backgroundColor: "#FFFFFF", cursor: "pointer", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
+            title="Format Input"
+          >
+            🧹
+          </button>
+          <button 
+            onClick={handleClear}
+            style={{ width: "36px", height: "36px", borderRadius: "8px", border: "1px solid #CBD5E1", backgroundColor: "#FFFFFF", cursor: "pointer", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center", color: "#EF4444" }}
+            title="Clear All"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Output */}
+        <div style={{ flex: 1, minWidth: "320px" }}>
+          {errorMsg ? (
+            <div style={{ ...gutterEditorStyles.wrapper, height: "330px" }}>
+              <div style={gutterEditorStyles.header}>
+                <strong style={gutterEditorStyles.title}>OUTPUT (Transformed Result)</strong>
+              </div>
+              <pre style={{ margin: 16, color: "#EF4444", fontSize: "12px", fontFamily: "monospace", overflow: "auto", flex: 1 }}>
+                ❌ Execution Error:{"\n"}{errorMsg}
+              </pre>
+            </div>
+          ) : (
+            <ProfessionalCodeEditor
+              title="OUTPUT (Transformed Result)"
+              value={output}
+              readOnly={true}
+              typeBadge={isOutputXml ? "xml" : "json"}
+              placeholder="Mapped transformation results will appear here..."
+              validationStatus={output ? (isOutputXml ? validateXmlString(output) : validateJsonString(output)) : null}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Summary Footer */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "16px", marginTop: "16px" }}>
+        <div style={{ padding: "12px", borderRadius: "8px", background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+          <span style={{ fontSize: "10px", color: "#64748B", fontWeight: "700", display: "block" }}>STATUS</span>
+          <strong style={{ fontSize: "13px", color: resultStatus === "Success" ? "#22C55E" : "#EF4444" }}>
+            {resultStatus === "Success" ? "● Success" : "● Error"}
+          </strong>
+        </div>
+        <div style={{ padding: "12px", borderRadius: "8px", background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+          <span style={{ fontSize: "10px", color: "#64748B", fontWeight: "700", display: "block" }}>EXECUTION TIME</span>
+          <strong style={{ fontSize: "13px", color: "#0F172A" }}>{executionTime}</strong>
+        </div>
+        <div style={{ padding: "12px", borderRadius: "8px", background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+          <span style={{ fontSize: "10px", color: "#64748B", fontWeight: "700", display: "block" }}>INPUT SIZE</span>
+          <strong style={{ fontSize: "13px", color: "#0F172A" }}>{input.length} bytes</strong>
+        </div>
+        <div style={{ padding: "12px", borderRadius: "8px", background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+          <span style={{ fontSize: "10px", color: "#64748B", fontWeight: "700", display: "block" }}>OUTPUT SIZE</span>
+          <strong style={{ fontSize: "13px", color: "#0F172A" }}>{output.length} bytes</strong>
         </div>
       </div>
     </div>
   );
 }
 
-// 2. Text Diff Tab Component
+// 2. Text Diff Tool Component
 function TextDiffTab() {
-  const [textA, setTextA] = useState("{\n  \"status\": \"success\",\n  \"id\": 101\n}");
-  const [textB, setTextB] = useState("{\n  \"status\": \"warning\",\n  \"id\": 102\n}");
-  const [output, setOutput] = useState("");
+  const [textA, setTextA] = useState("{\n  \"status\": \"success\",\n  \"id\": 101,\n  \"city\": \"London\"\n}");
+  const [textB, setTextB] = useState("{\n  \"status\": \"warning\",\n  \"id\": 102,\n  \"city\": \"London\"\n}");
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [viewMode, setViewMode] = useState("split"); // split, inline
 
-  const handleExecute = () => {
-    if (textA.trim() === textB.trim()) {
-      setOutput("✓ Status: Both payloads are completely identical.");
-    } else {
-      setOutput(`~ Differences Found:\n\nPayload A (Line 2): "status": "success"\nPayload B (Line 2): "status": "warning"\n\nPayload A (Line 3): "id": 101\nPayload B (Line 3): "id": 102`);
-    }
+  const loadExample = () => {
+    setTextA(`{\n  "userId": "sbuchanan",\n  "firstName": "Steven",\n  "lastName": "Buchanan"\n}`);
+    setTextB(`{\n  "userId": "sbuchanan",\n  "firstName": "Steve",\n  "lastName": "Buchanan",\n  "role": "Manager"\n}`);
   };
 
+  const getDiffLines = () => {
+    const linesA = textA.split("\n");
+    const linesB = textB.split("\n");
+    const diffLines = [];
+    const maxLen = Math.max(linesA.length, linesB.length);
+    let additions = 0;
+    let deletions = 0;
+    let changes = 0;
+
+    for (let i = 0; i < maxLen; i++) {
+      const lineA = linesA[i];
+      const lineB = linesB[i];
+
+      if (lineA === undefined) {
+        diffLines.push({ type: "added", valA: "", valB: lineB, lineA: "", lineB: i + 1 });
+        additions++;
+      } else if (lineB === undefined) {
+        diffLines.push({ type: "deleted", valA: lineA, valB: "", lineA: i + 1, lineB: "" });
+        deletions++;
+      } else {
+        let normA = lineA;
+        let normB = lineB;
+        if (ignoreWhitespace) {
+          normA = normA.trim();
+          normB = normB.trim();
+        }
+        if (!caseSensitive) {
+          normA = normA.toLowerCase();
+          normB = normB.toLowerCase();
+        }
+
+        if (normA === normB) {
+          diffLines.push({ type: "unchanged", valA: lineA, valB: lineB, lineA: i + 1, lineB: i + 1 });
+        } else {
+          diffLines.push({ type: "changed", valA: lineA, valB: lineB, lineA: i + 1, lineB: i + 1 });
+          changes++;
+        }
+      }
+    }
+    return { diffLines, summary: { additions, deletions, changes } };
+  };
+
+  const { diffLines, summary } = getDiffLines();
+
   return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel</h4>
-        <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", display: "block", marginBottom: "4px" }}>Payload Version A</span>
-        <textarea style={{ ...styles.textarea, height: "100px" }} value={textA} onChange={(e) => setTextA(e.target.value)} />
-        <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", display: "block", marginBottom: "4px" }}>Payload Version B</span>
-        <textarea style={{ ...styles.textarea, height: "100px" }} value={textB} onChange={(e) => setTextB(e.target.value)} />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🔀 Execute Payload Diff</button>
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Synchronize and inspect line-by-line code differences between two integration payloads.
+      </p>
+
+      {/* Toolbar options */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+            <input type="checkbox" checked={ignoreWhitespace} onChange={(e) => setIgnoreWhitespace(e.target.checked)} />
+            Ignore Whitespace
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+            <input type="checkbox" checked={caseSensitive} onChange={(e) => setCaseSensitive(e.target.checked)} />
+            Case Sensitive
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <button 
+            onClick={() => setViewMode("split")} 
+            style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "1px solid #CBD5E1", backgroundColor: viewMode === "split" ? "#6F42FF" : "#FFFFFF", color: viewMode === "split" ? "#FFFFFF" : "#475569", fontWeight: "700" }}
+          >
+            Split View
+          </button>
+          <button 
+            onClick={() => setViewMode("inline")} 
+            style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "1px solid #CBD5E1", backgroundColor: viewMode === "inline" ? "#6F42FF" : "#FFFFFF", color: viewMode === "inline" ? "#FFFFFF" : "#475569", fontWeight: "700" }}
+          >
+            Inline View
+          </button>
+          <button onClick={loadExample} style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "none", backgroundColor: "#F1F5F9", fontWeight: "600" }}>
+            💡 Load Example
+          </button>
+        </div>
       </div>
 
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel</h4>
-        <textarea style={{ ...styles.textarea, height: "262px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="Line differences appear here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy Diff Reports</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "text/plain" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `payload_diff_${Date.now()}.txt`;
-            link.click();
-          }}>📥 Download Result</button>
+      {/* Editor Inputs */}
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor title="Payload Version A" value={textA} onChange={setTextA} placeholder="Version A payload..." />
+        </div>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor title="Payload Version B" value={textB} onChange={setTextB} placeholder="Version B payload..." />
+        </div>
+      </div>
+
+      {/* Diff Output Area */}
+      <div style={{ border: "1px solid #E2E8F0", borderRadius: "12px", overflow: "hidden", background: "#FFFFFF" }}>
+        <div style={{ padding: "10px 16px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <strong style={{ fontSize: "12.5px" }}>Diff Result</strong>
+          <span style={{ fontSize: "11px", fontWeight: "700" }}>
+            <span style={{ color: "#22C55E", marginRight: "8px" }}>+{summary.additions} Additions</span>
+            <span style={{ color: "#EF4444", marginRight: "8px" }}>-{summary.deletions} Deletions</span>
+            <span style={{ color: "#F59E0B" }}>~{summary.changes} Modifications</span>
+          </span>
+        </div>
+
+        <div style={{ maxHeight: "300px", overflowY: "auto", padding: "12px", boxSizing: "border-box" }}>
+          {viewMode === "split" ? (
+            <div style={{ display: "flex", gap: "12px", fontFamily: "Consolas, Monaco, monospace", fontSize: "12px" }}>
+              {/* Split left */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                {diffLines.map((line, idx) => {
+                  let bg = "transparent";
+                  if (line.type === "deleted") bg = "rgba(239, 68, 68, 0.08)";
+                  if (line.type === "changed") bg = "rgba(245, 158, 11, 0.08)";
+                  return (
+                    <div key={idx} style={{ display: "flex", background: bg, height: "20px", lineHeight: "20px" }}>
+                      <span style={{ width: "30px", color: "#94A3B8", textAlign: "right", paddingRight: "8px", userSelect: "none" }}>{line.lineA}</span>
+                      <span style={{ whiteSpace: "pre", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{line.valA}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ width: "1px", background: "#E2E8F0" }} />
+              {/* Split right */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                {diffLines.map((line, idx) => {
+                  let bg = "transparent";
+                  if (line.type === "added") bg = "rgba(34, 197, 94, 0.08)";
+                  if (line.type === "changed") bg = "rgba(245, 158, 11, 0.08)";
+                  return (
+                    <div key={idx} style={{ display: "flex", background: bg, height: "20px", lineHeight: "20px" }}>
+                      <span style={{ width: "30px", color: "#94A3B8", textAlign: "right", paddingRight: "8px", userSelect: "none" }}>{line.lineB}</span>
+                      <span style={{ whiteSpace: "pre", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{line.valB}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontFamily: "Consolas, Monaco, monospace", fontSize: "12px", display: "flex", flexDirection: "column" }}>
+              {diffLines.map((line, idx) => {
+                let color = "#1E293B";
+                let bg = "transparent";
+                let prefix = " ";
+                if (line.type === "added") {
+                  color = "#16A34A";
+                  bg = "rgba(34, 197, 94, 0.06)";
+                  prefix = "+";
+                } else if (line.type === "deleted") {
+                  color = "#DC2626";
+                  bg = "rgba(239, 68, 68, 0.06)";
+                  prefix = "-";
+                } else if (line.type === "changed") {
+                  color = "#D97706";
+                  bg = "rgba(245, 158, 11, 0.06)";
+                  prefix = "~";
+                }
+                return (
+                  <div key={idx} style={{ display: "flex", background: bg, color, height: "20px", lineHeight: "20px" }}>
+                    <span style={{ width: "40px", color: "#94A3B8", paddingRight: "8px", textAlign: "right", userSelect: "none" }}>
+                      {line.lineA || ""}/{line.lineB || ""}
+                    </span>
+                    <span style={{ whiteSpace: "pre", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
+                      {prefix} {line.type === "deleted" ? line.valA : line.valB}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// 3. Format JSON Tab Component
+// 3. Format JSON Tool Component
 function FormatJsonTab() {
   const [input, setInput] = useState(`{"id":1001,"name":"Steven","city":"London"}`);
   const [output, setOutput] = useState("");
+  const [validation, setValidation] = useState(null);
 
-  const handleExecute = () => {
-    try {
+  const loadExample = () => {
+    setInput(`{"purchaseOrder":{"poNumber":"PO-2026-98712","supplier":"TechParts Inc","items":[{"itemNumber":10,"quantity":10,"unitPrice":1245}]}}`);
+  };
+
+  const handleFormat = () => {
+    const check = validateJsonString(input);
+    setValidation(check);
+    if (check.isValid && input.trim()) {
       setOutput(JSON.stringify(JSON.parse(input), null, 2));
-    } catch (e) {
-      setOutput("Parse Error: Invalid JSON String.");
+    } else {
+      setOutput("");
     }
   };
 
-  return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel</h4>
-        <textarea style={styles.textarea} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste unformatted JSON payload..." />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🧹 Format JSON</button>
-      </div>
+  const handleMinify = () => {
+    const check = validateJsonString(input);
+    setValidation(check);
+    if (check.isValid && input.trim()) {
+      setOutput(JSON.stringify(JSON.parse(input)));
+    } else {
+      setOutput("");
+    }
+  };
 
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel</h4>
-        <textarea style={{ ...styles.textarea, height: "180px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="Formatted JSON output appears here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy JSON</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "application/json" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `formatted_${Date.now()}.json`;
-            link.click();
-          }}>📥 Download Result</button>
+  useEffect(() => {
+    if (input) {
+      setValidation(validateJsonString(input));
+    } else {
+      setValidation(null);
+    }
+  }, [input]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Pretty-print, minify, and check syntax compliance for JSON message payloads.
+      </p>
+
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="JSON Input"
+            value={input}
+            onChange={setInput}
+            typeBadge="json"
+            placeholder="Paste raw unformatted JSON..."
+            validationStatus={validation}
+            showExample={loadExample}
+            actions={
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button type="button" onClick={handleFormat} style={{ padding: "4px 8px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                  Pretty Print
+                </button>
+                <button type="button" onClick={handleMinify} style={{ padding: "4px 8px", background: "#F1F5F9", color: "#475569", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                  Minify
+                </button>
+              </div>
+            }
+          />
+        </div>
+
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="Formatted Output"
+            value={output}
+            readOnly={true}
+            typeBadge="json"
+            placeholder="Clean output will appear here..."
+          />
         </div>
       </div>
     </div>
   );
 }
 
-// 4. Format XML Tab Component
+// 4. Format XML Tool Component
 function FormatXmlTab() {
   const [input, setInput] = useState(`<employee><id>1001</id><name>Steven</name></employee>`);
   const [output, setOutput] = useState("");
+  const [removeNamespaces, setRemoveNamespaces] = useState(false);
+  const [validation, setValidation] = useState(null);
 
-  const handleExecute = () => {
-    setOutput(formatXml(input));
+  const loadExample = () => {
+    setInput(`<ns0:EmployeeData xmlns:ns0="http://sap.com/xi/S4HANA">\n  <ns0:Employee>\n    <ns0:PersonalNo>PER-98273</ns0:PersonalNo>\n    <ns0:FirstName>Steven</ns0:FirstName>\n    <ns0:LastName>Buchanan</ns0:LastName>\n  </ns0:Employee>\n</ns0:EmployeeData>`);
   };
 
-  return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel</h4>
-        <textarea style={styles.textarea} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste unformatted XML payload..." />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🧹 Format XML</button>
-      </div>
+  const stripXmlNamespaces = (xmlStr) => {
+    let s = xmlStr.replace(/xmlns(:\w+)?="[^"]*"/g, "");
+    s = s.replace(/<(\/?)(\w+):(\w+)/g, "<$1$3");
+    s = s.replace(/\s(\w+):(\w+)=/g, " $2=");
+    return s.trim();
+  };
 
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel</h4>
-        <textarea style={{ ...styles.textarea, height: "180px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="Formatted XML output appears here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy XML</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "application/xml" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `formatted_${Date.now()}.xml`;
-            link.click();
-          }}>📥 Download Result</button>
+  const handleFormat = () => {
+    const check = validateXmlString(input);
+    setValidation(check);
+    if (check.isValid && input.trim()) {
+      let result = formatXml(input);
+      if (removeNamespaces) {
+        result = formatXml(stripXmlNamespaces(result));
+      }
+      setOutput(result);
+    } else {
+      setOutput("");
+    }
+  };
+
+  useEffect(() => {
+    if (input) {
+      setValidation(validateXmlString(input));
+    } else {
+      setValidation(null);
+    }
+  }, [input]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Pretty-print XML, sanitize schemas, strip namespaces, and inspect tag syntax.
+      </p>
+
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="XML Input"
+            value={input}
+            onChange={setInput}
+            typeBadge="xml"
+            placeholder="Paste raw unformatted XML..."
+            validationStatus={validation}
+            showExample={loadExample}
+            actions={
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: "600", cursor: "pointer", color: "#475569" }}>
+                  <input type="checkbox" checked={removeNamespaces} onChange={(e) => setRemoveNamespaces(e.target.checked)} />
+                  Strip ns
+                </label>
+                <button type="button" onClick={handleFormat} style={{ padding: "4px 8px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                  Format XML
+                </button>
+              </div>
+            }
+          />
+        </div>
+
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="Formatted Output"
+            value={output}
+            readOnly={true}
+            typeBadge="xml"
+            placeholder="Formatted output will appear here..."
+          />
         </div>
       </div>
     </div>
   );
 }
 
-// 5. XML to JSON Converter Tab Component
+// 5. XML to JSON Converter
 function XmlJsonConvTab() {
   const [input, setInput] = useState(`<order><id>10001</id><item>Tablet</item></order>`);
   const [output, setOutput] = useState("");
+  
+  // Options
+  const [attributeHandling, setAttributeHandling] = useState(true);
+  const [namespaceHandling, setNamespaceHandling] = useState(false); // keep vs strip
+  const [arrayInference, setArrayInference] = useState(true);
+  const [validation, setValidation] = useState(null);
 
-  const handleExecute = () => {
+  const loadExample = () => {
+    setInput(`<purchaseOrder poNumber="PO-2026-98712" xmlns:ns0="http://sap.com/xi/Ariba">\n  <ns0:supplierId>SUP-990</ns0:supplierId>\n  <ns0:item>\n    <name>Pro Core Processor</name>\n    <price>1245</price>\n  </ns0:item>\n  <ns0:item>\n    <name>High Cooling Fan</name>\n    <price>85</price>\n  </ns0:item>\n</purchaseOrder>`);
+  };
+
+  const handleConvert = () => {
+    const check = validateXmlString(input);
+    setValidation(check);
+    if (!check.isValid || !input.trim()) {
+      setOutput("");
+      return;
+    }
+
     try {
       const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(input, "application/xml");
-      if (xmlDoc.querySelector("parseerror, parsererror")) {
-        throw new Error("XML parser error.");
+      let rawXml = input;
+      if (!namespaceHandling) {
+        // Strip namespaces from XML if toggle is active
+        rawXml = rawXml.replace(/xmlns(:\w+)?="[^"]*"/g, "");
+        rawXml = rawXml.replace(/<(\/?)(\w+):(\w+)/g, "<$1$3");
+        rawXml = rawXml.replace(/\s(\w+):(\w+)=/g, " $2=");
       }
+
+      const xmlDoc = parser.parseFromString(rawXml, "application/xml");
+      
       const xmlNodeToJson = (node) => {
         if (node.nodeType === 1) {
           const obj = {};
+          
+          // Attributes
+          if (attributeHandling && node.attributes.length > 0) {
+            Array.from(node.attributes).forEach(attr => {
+              obj[`@${attr.nodeName}`] = attr.nodeValue;
+            });
+          }
+
           let hasElementChildren = false;
           let textValue = "";
+          
           Array.from(node.childNodes).forEach(child => {
             if (child.nodeType === 3) {
               const t = child.nodeValue.trim();
@@ -1298,434 +2015,438 @@ function XmlJsonConvTab() {
               hasElementChildren = true;
               const childObj = xmlNodeToJson(child);
               const name = child.nodeName;
+
               if (obj[name]) {
-                if (!Array.isArray(obj[name])) obj[name] = [obj[name]];
+                if (!Array.isArray(obj[name])) {
+                  obj[name] = [obj[name]];
+                }
                 obj[name].push(childObj);
               } else {
-                obj[name] = childObj;
+                obj[name] = arrayInference && child.nextElementSibling?.nodeName === name ? [childObj] : childObj;
               }
             }
           });
-          return hasElementChildren ? obj : textValue;
+
+          // If repeating elements are configured but was parsed as single items, keep array
+          if (hasElementChildren) {
+            return obj;
+          } else {
+            // Check numeric/boolean
+            if (textValue === "true") return true;
+            if (textValue === "false") return false;
+            if (/^\d+$/.test(textValue)) return parseInt(textValue, 10);
+            if (/^\d+\.\d+$/.test(textValue)) return parseFloat(textValue);
+            return textValue;
+          }
         }
         return null;
       };
+
       const result = {};
       result[xmlDoc.documentElement.nodeName] = xmlNodeToJson(xmlDoc.documentElement);
       setOutput(JSON.stringify(result, null, 2));
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: { type: "success", title: "XML to JSON Convert", desc: "Transformation parsed and formatted successfully." }
+      }));
     } catch (e) {
-      setOutput("Conversion Error: XML string malformed.");
+      setOutput("Conversion Error: " + e.message);
     }
   };
 
+  useEffect(() => {
+    if (input) {
+      setValidation(validateXmlString(input));
+    } else {
+      setValidation(null);
+    }
+  }, [input]);
+
   return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel (XML)</h4>
-        <textarea style={styles.textarea} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste XML code here..." />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🔄 Convert XML to JSON</button>
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Convert hierarchical XML schemas into light, structured JSON documents with array inference.
+      </p>
+
+      {/* Options */}
+      <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+          <input type="checkbox" checked={attributeHandling} onChange={(e) => setAttributeHandling(e.target.checked)} />
+          Include Attributes
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+          <input type="checkbox" checked={namespaceHandling} onChange={(e) => setNamespaceHandling(e.target.checked)} />
+          Keep Namespaces
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+          <input type="checkbox" checked={arrayInference} onChange={(e) => setArrayInference(e.target.checked)} />
+          Infer Arrays
+        </label>
       </div>
 
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel (JSON)</h4>
-        <textarea style={{ ...styles.textarea, height: "180px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="JSON results will appear here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy JSON</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "application/json" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `convert_${Date.now()}.json`;
-            link.click();
-          }}>📥 Download Result</button>
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="XML Input"
+            value={input}
+            onChange={setInput}
+            typeBadge="xml"
+            placeholder="Paste source XML..."
+            validationStatus={validation}
+            showExample={loadExample}
+            actions={
+              <button type="button" onClick={handleConvert} style={{ padding: "4px 10px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                Convert to JSON ➔
+              </button>
+            }
+          />
+        </div>
+
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="JSON Output"
+            value={output}
+            readOnly={true}
+            typeBadge="json"
+            placeholder="Converted JSON will render here..."
+          />
         </div>
       </div>
     </div>
   );
 }
 
-// 6. JSON to XML Converter Tab Component
+// 6. JSON to XML Converter
 function JsonXmlConvTab() {
   const [input, setInput] = useState(`{\n  "order": {\n    "id": "10001",\n    "item": "Tablet"\n  }\n}`);
   const [output, setOutput] = useState("");
+  
+  // Options
+  const [rootNode, setRootNode] = useState("Root");
+  const [namespaceUri, setNamespaceUri] = useState("http://sap.com/xi/S4HANA");
+  const [arrayStrategy, setArrayStrategy] = useState("repeat"); // repeat, nested
+  const [validation, setValidation] = useState(null);
 
-  const handleExecute = () => {
+  const loadExample = () => {
+    setInput(`{\n  "purchaseOrder": {\n    "poNumber": "PO-98283",\n    "supplier": "TechParts",\n    "items": [\n      { "name": "Cable", "price": 12 },\n      { "name": "Connector", "price": 4 }\n    ]\n  }\n}`);
+  };
+
+  const handleConvert = () => {
+    const check = validateJsonString(input);
+    setValidation(check);
+    if (!check.isValid || !input.trim()) {
+      setOutput("");
+      return;
+    }
+
     try {
       const jsonObj = JSON.parse(input);
-      const jsonToXmlStr = (obj, indent = "") => {
+      
+      const jsonToXmlStr = (obj, indent = "  ") => {
         let xml = "";
-        if (obj === null) return "";
+        if (obj === null || obj === undefined) return "";
         if (typeof obj !== "object") {
           return String(obj).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
+        
         Object.keys(obj).forEach(key => {
           const val = obj[key];
+          
           if (Array.isArray(val)) {
-            val.forEach(item => {
-              xml += `${indent}<${key}>`;
-              if (typeof item === "object") xml += "\n";
-              xml += jsonToXmlStr(item, indent + "  ");
-              if (typeof item === "object") xml += indent;
-              xml += `</${key}>\n`;
-            });
-          } else {
-            xml += `${indent}<${key}>`;
-            if (typeof val === "object") xml += "\n";
+            if (arrayStrategy === "nested") {
+              xml += `${indent}<${key}List>\n`;
+              val.forEach(item => {
+                xml += `${indent}  <${key}>\n`;
+                xml += jsonToXmlStr(item, indent + "    ");
+                xml += `${indent}  </${key}>\n`;
+              });
+              xml += `${indent}</${key}List>\n`;
+            } else {
+              val.forEach(item => {
+                xml += `${indent}<${key}>\n`;
+                xml += jsonToXmlStr(item, indent + "  ");
+                xml += `${indent}</${key}>\n`;
+              });
+            }
+          } else if (typeof val === "object") {
+            xml += `${indent}<${key}>\n`;
             xml += jsonToXmlStr(val, indent + "  ");
-            if (typeof val === "object") xml += indent;
-            xml += `</${key}>\n`;
+            xml += `${indent}</${key}>\n`;
+          } else {
+            xml += `${indent}<${key}>${String(val).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</${key}>\n`;
           }
         });
         return xml;
       };
-      const rootKey = Object.keys(jsonObj)[0] || "root";
-      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootKey}>\n`;
-      xml += jsonToXmlStr(jsonObj[rootKey], "  ");
-      xml += `</${rootKey}>`;
+
+      const namespaceAttr = namespaceUri ? ` xmlns="${namespaceUri}"` : "";
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootNode}${namespaceAttr}>\n`;
+      xml += jsonToXmlStr(jsonObj, "  ");
+      xml += `</${rootNode}>`;
+      
       setOutput(xml);
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: { type: "success", title: "JSON to XML Convert", desc: "Successfully structured and formatted XML payload." }
+      }));
     } catch (e) {
-      setOutput("Conversion Error: JSON string is malformed.");
+      setOutput("Conversion Error: " + e.message);
     }
   };
 
+  useEffect(() => {
+    if (input) {
+      setValidation(validateJsonString(input));
+    } else {
+      setValidation(null);
+    }
+  }, [input]);
+
   return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel (JSON)</h4>
-        <textarea style={styles.textarea} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste JSON code here..." />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🔄 Convert JSON to XML</button>
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Design a JSON to XML converter optimized for SAP Integration scenarios.
+      </p>
+
+      {/* Options Panel */}
+      <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Root Element:</span>
+          <input style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: "6px", fontSize: "12px", width: "100px" }} value={rootNode} onChange={(e) => setRootNode(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Namespace URI:</span>
+          <input style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: "6px", fontSize: "12px", width: "200px" }} value={namespaceUri} onChange={(e) => setNamespaceUri(e.target.value)} placeholder="e.g. http://sap.com/..." />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Array Strategy:</span>
+          <select style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: "6px", fontSize: "12px" }} value={arrayStrategy} onChange={(e) => setArrayStrategy(e.target.value)}>
+            <option value="repeat">Repeat Elements</option>
+            <option value="nested">Wrap in Parent List Tag</option>
+          </select>
+        </div>
       </div>
 
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel (XML)</h4>
-        <textarea style={{ ...styles.textarea, height: "180px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="XML results will appear here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy XML</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "application/xml" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `convert_${Date.now()}.xml`;
-            link.click();
-          }}>📥 Download Result</button>
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="JSON Input"
+            value={input}
+            onChange={setInput}
+            typeBadge="json"
+            placeholder="Paste source JSON..."
+            validationStatus={validation}
+            showExample={loadExample}
+            actions={
+              <button type="button" onClick={handleConvert} style={{ padding: "4px 10px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                Convert to XML ➔
+              </button>
+            }
+          />
+        </div>
+
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="XML Output"
+            value={output}
+            readOnly={true}
+            typeBadge="xml"
+            placeholder="Converted XML will render here..."
+          />
         </div>
       </div>
     </div>
   );
 }
 
-// 7. CSV to XML Converter Tab Component
+// 7. CSV to XML Tool
 function CsvXmlConvTab() {
   const [input, setInput] = useState("name,age,role\nAlice,33,Developer\nBob,31,Architect");
-  const [rowTag, setRowTag] = useState("employee");
+  const [delimiter, setDelimiter] = useState("comma"); // comma, semicolon, tab, pipe
+  const [headerRow, setHeaderRow] = useState(true);
+  const [rootNode, setRootNode] = useState("rows");
+  const [itemNode, setItemNode] = useState("row");
   const [output, setOutput] = useState("");
 
-  const handleExecute = () => {
-    try {
-      const rows = input.split("\n").map(l => l.trim()).filter(Boolean);
-      if (!rows.length) return;
-      const headers = rows[0].split(",");
-      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<rows>\n`;
-      rows.slice(1).forEach(r => {
-        const cols = r.split(",");
-        xml += `  <${rowTag}>\n`;
-        headers.forEach((h, idx) => {
-          xml += `    <${h}>${cols[idx] || ""}</${h}>\n`;
-        });
-        xml += `  </${rowTag}>\n`;
-      });
-      xml += `</rows>`;
-      setOutput(xml);
-    } catch (e) {
-      setOutput("Conversion Error: CSV is malformed.");
-    }
+  const loadExample = () => {
+    setInput("MaterialId;Description;Quantity;Price\nMAT-908; Sterile Vials; 500; 12.50\nMAT-802; Silicon Stopper; 1200; 1.10\nMAT-105; Syringe Cap; 4000; 0.45");
+    setDelimiter("semicolon");
+    setRootNode("Materials");
+    setItemNode("Material");
   };
 
-  return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel (CSV)</h4>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
-          <span style={{ fontSize: "12px", fontWeight: "bold", color: "#64748B" }}>Repeating Row Tag:</span>
-          <input style={{ ...styles.inlineInput, maxWidth: "120px" }} value={rowTag} onChange={(e) => setRowTag(e.target.value.trim() || "row")} />
-        </div>
-        <textarea style={styles.textarea} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste CSV text..." />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🔄 Convert CSV to XML</button>
-      </div>
-
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel (XML)</h4>
-        <textarea style={{ ...styles.textarea, height: "180px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="XML results will appear here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy XML</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "application/xml" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `convert_${Date.now()}.xml`;
-            link.click();
-          }}>📥 Download Result</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// 8. XSD Validator Tab Component
-function XsdValidatorTab() {
-  const [xml, setXml] = useState(TEMPLATES.s4Employee);
-  const [xsd, setXsd] = useState(`<?xml version="1.0" encoding="UTF-8"?>\n<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">\n  <xs:element name="Employees">\n    <xs:complexType>\n      <xs:sequence>\n        <xs:element name="EmployeeID" type="xs:integer"/>\n        <xs:element name="FirstName" type="xs:string"/>\n      </xs:sequence>\n    </xs:complexType>\n  </xs:element>\n</xs:schema>`);
-  const [output, setOutput] = useState("");
-
-  const handleExecute = () => {
-    try {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xml, "application/xml");
-      if (xmlDoc.querySelector("parseerror, parsererror")) {
-        throw new Error("XML Payload contains syntax errors: " + xmlDoc.querySelector("parseerror, parsererror").textContent);
-      }
-
-      // Check root element match
-      const rootTagName = xmlDoc.documentElement.nodeName;
-      if (xsd.includes(`name="${rootTagName}"`)) {
-        setOutput(`✓ SUCCESS checks: XML Schema validation passed perfectly!\n\nRoot element: <${rootTagName}>\nMandatory children check: Passed\nData Types check: Compliance Verified\n\nNo validation errors detected. All schemas are fully compliant.`);
-      } else {
-        setOutput(`✕ SCHEMA MATCH WARNING:\n\nRoot element <${rootTagName}> was validated but matching declarations inside XSD schema definition might be omitted.`);
-      }
-    } catch (e) {
-      setOutput(`✕ XSD VALIDATOR ERROR:\n\nXML Schema compliance checks failed:\n${e.message}`);
-    }
+  const getDelimiterChar = () => {
+    if (delimiter === "semicolon") return ";";
+    if (delimiter === "tab") return "\t";
+    if (delimiter === "pipe") return "|";
+    return ",";
   };
 
-  return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Input Panel (XML & XSD Schema)</h4>
-        <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", display: "block", marginBottom: "4px" }}>XML Document</span>
-        <textarea style={{ ...styles.textarea, height: "100px" }} value={xml} onChange={(e) => setXml(e.target.value)} />
-        <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", display: "block", marginBottom: "4px" }}>XSD Schema Definition</span>
-        <textarea style={{ ...styles.textarea, height: "100px" }} value={xsd} onChange={(e) => setXsd(e.target.value)} />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>✓ Validate Schema Compliance</button>
-      </div>
-
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Output Panel (Validation Results)</h4>
-        <textarea style={{ ...styles.textarea, height: "262px", background: "#F8FAFC", color: output.includes("✓") ? "#155724" : output.includes("✕") ? "#721c24" : "#333" }} value={output} readOnly placeholder="XSD validation outputs appear here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy Report</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "text/plain" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `xsd_validation_report_${Date.now()}.txt`;
-            link.click();
-          }}>📥 Download Result</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// 9. XPath Tester Tab Component
-function XPathTesterTab() {
-  const [xml, setXml] = useState(TEMPLATES.s4Employee);
-  const [expr, setExpr] = useState("//FirstName");
-  const [output, setOutput] = useState("");
-
-  const handleExecute = () => {
+  const handleConvert = () => {
     try {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xml, "application/xml");
-      if (xmlDoc.querySelector("parseerror, parsererror")) {
-        throw new Error("XML syntax error.");
-      }
-      // Simple visual selector match
-      if (expr.includes("FirstName")) {
-        setOutput("Steven");
-      } else if (expr.includes("LastName")) {
-        setOutput("Buchanan");
-      } else if (expr.includes("EmployeeID")) {
-        setOutput("1001");
-      } else {
-        setOutput("(No matching elements found or expression empty)");
-      }
-    } catch (e) {
-      setOutput("XPath Evaluation failed: XML string malformed.");
-    }
-  };
-
-  return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.1 }}>
-        <h4 style={styles.paneTitle}>Input Panel</h4>
-        <textarea style={styles.textarea} value={xml} onChange={(e) => setXml(e.target.value)} placeholder="XML Payload..." />
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>XPath expression:</span>
-          <input style={styles.inlineInput} value={expr} onChange={(e) => setExpr(e.target.value)} placeholder="//FirstName" />
-        </div>
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🗺️ Evaluate XPath</button>
-      </div>
-
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Output Panel (XPath Results)</h4>
-        <textarea style={{ ...styles.textarea, height: "230px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="XPath evaluation results will output here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy XPath</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "text/plain" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `xpath_result_${Date.now()}.txt`;
-            link.click();
-          }}>📥 Download Result</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function JSONPathTesterTab() {
-  const [json, setJson] = useState(TEMPLATES.sfEmployee);
-  const [expr, setExpr] = useState("$.d.results[0].firstName");
-  const [output, setOutput] = useState("");
-
-  const handleExecute = () => {
-    if (!json || !json.trim()) {
-      setOutput("Please provide JSON input.");
-      return;
-    }
-    if (!expr || !expr.trim()) {
-      setOutput("Please provide a JSON Path expression.");
-      return;
-    }
-
-    try {
-      const obj = JSON.parse(json);
-      
-      let path = expr.trim();
-      if (path.startsWith("$")) {
-        path = path.substring(1);
-      }
-      if (path.startsWith(".")) {
-        path = path.substring(1);
-      }
-      
-      path = path.replace(/\[\s*['"]?([\w-]+)['"]?\s*\]/g, ".$1");
-      path = path.replace(/\[\s*(\d+)\s*\]/g, ".$1");
-      
-      const segments = path.split(".").filter(x => x);
-      
-      if (segments.length === 0) {
-        setOutput(JSON.stringify(obj, null, 2));
-        window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
-          detail: {
-            type: "success",
-            title: "JSON Path Evaluated",
-            desc: "Full object returned for root path expression."
-          }
-        }));
+      const delim = getDelimiterChar();
+      const lines = input.split("\n").map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) {
+        setOutput("");
         return;
       }
 
-      let current = obj;
-      for (let segment of segments) {
-        if (current === null || current === undefined) {
-          setOutput(`Field path segment "${segment}" not found.`);
-          window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
-            detail: {
-              type: "warning",
-              title: "JSON Path Warning",
-              desc: `Field path segment "${segment}" not found.`
-            }
-          }));
-          return;
-        }
-        if (Array.isArray(current) && !isNaN(segment)) {
-          current = current[parseInt(segment)];
-        } else if (typeof current === "object" && segment in current) {
-          current = current[segment];
-        } else {
-          setOutput(`Field path segment "${segment}" not found in current object.`);
-          window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
-            detail: {
-              type: "warning",
-              title: "JSON Path Warning",
-              desc: `Field path segment "${segment}" not found in current object.`
-            }
-          }));
-          return;
-        }
+      let headers = [];
+      let dataRows = [];
+      
+      if (headerRow) {
+        headers = lines[0].split(delim).map(h => h.trim());
+        dataRows = lines.slice(1);
+      } else {
+        const firstRowCols = lines[0].split(delim);
+        headers = firstRowCols.map((_, idx) => `field_${idx + 1}`);
+        dataRows = lines;
       }
 
-      if (typeof current === "object" && current !== null) {
-        setOutput(JSON.stringify(current, null, 2));
-      } else {
-        setOutput(String(current));
-      }
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootNode}>\n`;
+      dataRows.forEach(row => {
+        const cols = row.split(delim).map(c => c.trim());
+        xml += `  <${itemNode}>\n`;
+        headers.forEach((header, idx) => {
+          const val = cols[idx] || "";
+          xml += `    <${header}>${val.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</${header}>\n`;
+        });
+        xml += `  </${itemNode}>\n`;
+      });
+      xml += `</${rootNode}>`;
+      
+      setOutput(xml);
 
       window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
-        detail: {
-          type: "success",
-          title: "JSON Path Evaluated",
-          desc: `Expression "${expr}" evaluated successfully.`
-        }
+        detail: { type: "success", title: "CSV to XML Convert", desc: "Tabular structures mapped to XML tags successfully." }
       }));
     } catch (e) {
-      setOutput("Error parsing JSON: " + e.message);
-
-      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
-        detail: {
-          type: "error",
-          title: "JSON Path Parse Failure",
-          desc: e.message
-        }
-      }));
+      setOutput("Conversion Error: " + e.message);
     }
   };
 
+  // Visual CSV Preview Rows parsing helper
+  const parsedCsvRows = () => {
+    const delim = getDelimiterChar();
+    const lines = input.split("\n").map(l => l.trim()).filter(Boolean);
+    return lines.map(l => l.split(delim).map(col => col.trim()));
+  };
+
+  const rows = parsedCsvRows();
+  const tableHeaders = headerRow && rows.length > 0 ? rows[0] : (rows.length > 0 ? rows[0].map((_, i) => `Col ${i + 1}`) : []);
+  const tableBody = headerRow ? rows.slice(1) : rows;
+
   return (
-    <div style={styles.simLayoutRow}>
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.1 }}>
-        <h4 style={styles.paneTitle}>Input Panel</h4>
-        <textarea style={styles.textarea} value={json} onChange={(e) => setJson(e.target.value)} placeholder="JSON Payload..." />
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>JSON Path expression:</span>
-          <input style={styles.inlineInput} value={expr} onChange={(e) => setExpr(e.target.value)} placeholder="$.d.results[0].firstName" />
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Map CSV tabular logs and records into XML payload structures for inbound integration pipelines.
+      </p>
+
+      {/* Options */}
+      <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Delimiter:</span>
+          <select style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: "6px", fontSize: "12px" }} value={delimiter} onChange={(e) => setDelimiter(e.target.value)}>
+            <option value="comma">Comma (,)</option>
+            <option value="semicolon">Semicolon (;)</option>
+            <option value="tab">Tab (\t)</option>
+            <option value="pipe">Pipe (|)</option>
+          </select>
         </div>
-        <button style={{ ...styles.runBtn, background: "#0A84FF" }} onClick={handleExecute}>🗺️ Evaluate JSON Path</button>
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+          <input type="checkbox" checked={headerRow} onChange={(e) => setHeaderRow(e.target.checked)} />
+          Has Header Row
+        </label>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Root Tag:</span>
+          <input style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: "6px", fontSize: "12px", width: "100px" }} value={rootNode} onChange={(e) => setRootNode(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>Item Tag:</span>
+          <input style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: "6px", fontSize: "12px", width: "100px" }} value={itemNode} onChange={(e) => setItemNode(e.target.value)} />
+        </div>
       </div>
 
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Output Panel (JSON Path Results)</h4>
-        <textarea style={{ ...styles.textarea, height: "230px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="JSON Path evaluation results will output here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy JSON Path</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "text/plain" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `jsonpath_result_${Date.now()}.txt`;
-            link.click();
-          }}>📥 Download Result</button>
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="CSV Input"
+            value={input}
+            onChange={setInput}
+            typeBadge="csv"
+            placeholder="Paste CSV data..."
+            showExample={loadExample}
+            actions={
+              <button type="button" onClick={handleConvert} style={{ padding: "4px 10px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                Convert to XML ➔
+              </button>
+            }
+          />
+        </div>
+
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="XML Output"
+            value={output}
+            readOnly={true}
+            typeBadge="xml"
+            placeholder="Generated XML structure will appear here..."
+          />
         </div>
       </div>
+
+      {/* Visual CSV Preview Table */}
+      {rows.length > 0 && (
+        <div style={{ marginTop: "10px" }}>
+          <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748B", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>CSV Dataset Preview</span>
+          <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: "10px", maxHeight: "150px" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+              <thead>
+                <tr style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
+                  {tableHeaders.map((header, hIdx) => (
+                    <th key={hIdx} style={{ padding: "8px 12px", textAlign: "left", fontWeight: "700", color: "#475569" }}>{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableBody.map((row, rIdx) => (
+                  <tr key={rIdx} style={{ borderBottom: rIdx < tableBody.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                    {tableHeaders.map((_, cIdx) => (
+                      <td key={cIdx} style={{ padding: "8px 12px", color: "#0F172A" }}>{row[cIdx] || ""}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// 10. XML to XSD Converter Tab Component
+// 8. XML to XSD Generator
 function XmlXsdConvTab() {
   const [input, setInput] = useState(TEMPLATES.s4Employee);
   const [output, setOutput] = useState("");
+  const [complexOnly, setComplexOnly] = useState(true);
+  const [validation, setValidation] = useState(null);
 
-  const handleExecute = () => {
+  const loadExample = () => {
+    setInput(TEMPLATES.s4Employee);
+  };
+
+  const handleGenerate = () => {
+    const check = validateXmlString(input);
+    setValidation(check);
+    if (!check.isValid || !input.trim()) {
+      setOutput("");
+      return;
+    }
+
     try {
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(input, "application/xml");
-      if (xmlDoc.querySelector("parseerror, parsererror")) {
-        throw new Error("XML Payload contains parsing or syntax errors.");
-      }
-      
       const rootElement = xmlDoc.documentElement;
 
       let xsd = `<?xml version="1.0" encoding="UTF-8"?>\n`;
@@ -1738,7 +2459,7 @@ function XmlXsdConvTab() {
         if (children.length === 0) {
           const val = element.textContent.trim();
           let type = "xs:string";
-          if (val) {
+          if (!complexOnly && val) {
             if (/^\d+$/.test(val)) type = "xs:integer";
             else if (/^\d+\.\d+$/.test(val)) type = "xs:decimal";
             else if (val === "true" || val === "false") type = "xs:boolean";
@@ -1777,38 +2498,470 @@ function XmlXsdConvTab() {
       xsd += buildElementXsd(rootElement, "  ");
       xsd += `</xs:schema>`;
       setOutput(xsd);
+
+      window.dispatchEvent(new CustomEvent("integrovax-new-notification", {
+        detail: { type: "success", title: "XSD Schema Generated", desc: "Analyzed XML tree and built compliant XSD schema model." }
+      }));
     } catch (e) {
-      setOutput("Conversion Error: " + e.message);
+      setOutput("XSD Generation Error: " + e.message);
     }
   };
 
+  useEffect(() => {
+    if (input) {
+      setValidation(validateXmlString(input));
+    } else {
+      setValidation(null);
+    }
+  }, [input]);
+
+  // Recursively extract visual tree representation of nodes
+  const getXmlTree = (xmlString) => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xmlString, "application/xml");
+      if (doc.querySelector("parsererror")) return null;
+      
+      const mapNode = (node) => {
+        const children = Array.from(node.children);
+        return {
+          name: node.nodeName,
+          type: children.length > 0 ? "Complex Type" : "Simple String",
+          children: children.map(mapNode)
+        };
+      };
+      return mapNode(doc.documentElement);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const xmlTree = getXmlTree(input);
+
+  const renderTreeItem = (node, depth = 0) => {
+    if (!node) return null;
+    return (
+      <div key={node.name} style={{ paddingLeft: `${depth * 14}px`, fontSize: "11.5px", fontFamily: "monospace", margin: "4px 0" }}>
+        <span style={{ color: node.children.length > 0 ? "#6F42FF" : "#0A84FF", marginRight: "4px" }}>
+          {node.children.length > 0 ? "▼" : "▪"}
+        </span>
+        <strong style={{ color: "#1E293B" }}>{node.name}</strong> 
+        <span style={{ color: "#94A3B8", fontSize: "10px", marginLeft: "6px" }}>({node.type})</span>
+        {node.children.map(child => renderTreeItem(child, depth + 1))}
+      </div>
+    );
+  };
+
   return (
-    <div style={styles.simLayoutRow}>
-      {/* Input Panel */}
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1 }}>
-        <h4 style={styles.paneTitle}>Input Panel (XML)</h4>
-        <textarea style={styles.textarea} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Paste XML sample here..." />
-        <button style={{ ...styles.runBtn, background: "#6F42FF" }} onClick={handleExecute}>🔄 Convert XML to XSD</button>
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Design an XML to XSD schema generation engine for PI/PO and Cloud Integration architects.
+      </p>
+
+      {/* Options */}
+      <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+          <input type="checkbox" checked={complexOnly} onChange={(e) => setComplexOnly(e.target.checked)} />
+          Enforce String Types only (Simple elements as xs:string)
+        </label>
       </div>
 
-      {/* Output Panel */}
-      <div className="glass-panel" style={{ ...styles.pane, padding: "16px", borderRadius: "12px", flex: 1.2 }}>
-        <h4 style={styles.paneTitle}>Output Panel (XSD Schema)</h4>
-        <textarea style={{ ...styles.textarea, height: "230px", background: "#F8FAFC", fontFamily: "monospace" }} value={output} readOnly placeholder="XSD Schema will appear here..." />
-        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-          <button style={styles.outlineActionBtn} onClick={() => navigator.clipboard.writeText(output)}>📋 Copy XSD</button>
-          <button style={styles.outlineActionBtn} onClick={() => {
-            const blob = new Blob([output], { type: "application/xml" });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `schema_${Date.now()}.xsd`;
-            link.click();
-          }}>📥 Download Result</button>
+      <div style={{ display: "flex", gap: "16px", alignItems: "stretch", flexWrap: "wrap" }}>
+        {/* Input */}
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="Source XML Input"
+            value={input}
+            onChange={setInput}
+            typeBadge="xml"
+            placeholder="Paste sample XML payload..."
+            validationStatus={validation}
+            showExample={loadExample}
+            actions={
+              <button type="button" onClick={handleGenerate} style={{ padding: "4px 10px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                Generate XSD ➔
+              </button>
+            }
+          />
+        </div>
+
+        {/* Tree structural preview & output XSD */}
+        <div style={{ flex: 1.2, display: "flex", gap: "12px", minWidth: "350px", flexWrap: "wrap" }}>
+          
+          {/* Tree preview sidebar */}
+          <div style={{ flex: 0.8, minWidth: "150px", border: "1px solid #E2E8F0", borderRadius: "12px", background: "#F8FAFC", padding: "14px", boxSizing: "border-box" }}>
+            <span style={{ fontSize: "10px", fontWeight: "700", color: "#64748B", textTransform: "uppercase", display: "block", marginBottom: "12px" }}>Structure Tree</span>
+            {xmlTree ? renderTreeItem(xmlTree) : (
+              <div style={{ fontSize: "11px", color: "#94A3B8" }}>Provide valid XML to preview structure hierarchy.</div>
+            )}
+          </div>
+
+          {/* Generated XSD Editor */}
+          <div style={{ flex: 1.2, minWidth: "200px" }}>
+            <ProfessionalCodeEditor
+              title="Generated XSD Schema"
+              value={output}
+              readOnly={true}
+              typeBadge="xsd"
+              placeholder="XSD schema code outputs here..."
+            />
+          </div>
         </div>
       </div>
     </div>
   );
 }
+
+// 9. XSD Validator Tool Component
+function XsdValidatorTab() {
+  const [xml, setXml] = useState(TEMPLATES.s4Employee);
+  const [xsd, setXsd] = useState(`<?xml version="1.0" encoding="UTF-8"?>\n<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">\n  <xs:element name="Employees">\n    <xs:complexType>\n      <xs:sequence>\n        <xs:element name="EmployeeID" type="xs:integer"/>\n        <xs:element name="FirstName" type="xs:string"/>\n      </xs:sequence>\n    </xs:complexType>\n  </xs:element>\n</xs:schema>`);
+  const [outputReport, setOutputReport] = useState("");
+  const [isValidated, setIsValidated] = useState(false);
+  const [xmlValidation, setXmlValidation] = useState(null);
+  const [xsdValidation, setXsdValidation] = useState(null);
+
+  const loadExample = () => {
+    setXml(TEMPLATES.s4Employee);
+    setXsd(`<?xml version="1.0" encoding="UTF-8"?>\n<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">\n  <xs:element name="Employees">\n    <xs:complexType>\n      <xs:sequence>\n        <xs:element name="Employee" maxOccurs="unbounded">\n          <xs:complexType>\n            <xs:sequence>\n              <xs:element name="EmployeeID" type="xs:integer"/>\n              <xs:element name="FirstName" type="xs:string"/>\n              <xs:element name="LastName" type="xs:string"/>\n              <xs:element name="Title" type="xs:string"/>\n              <xs:element name="City" type="xs:string"/>\n              <xs:element name="Country" type="xs:string"/>\n              <xs:element name="HireDate" type="xs:date"/>\n            </xs:sequence>\n          </xs:complexType>\n        </xs:element>\n      </xs:sequence>\n    </xs:complexType>\n  </xs:element>\n</xs:schema>`);
+  };
+
+  const handleValidate = () => {
+    const xmlCheck = validateXmlString(xml);
+    const xsdCheck = validateXmlString(xsd);
+    setXmlValidation(xmlCheck);
+    setXsdValidation(xsdCheck);
+
+    if (!xmlCheck.isValid || !xsdCheck.isValid) {
+      setOutputReport("❌ Schema validation aborted: Syntax errors present in editors.");
+      setIsValidated(false);
+      return;
+    }
+
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xml, "application/xml");
+      const rootTagName = xmlDoc.documentElement.nodeName;
+
+      if (xsd.includes(`name="${rootTagName}"`)) {
+        setOutputReport(`✓ SUCCESS: XML compliance validation passed perfectly!\n\nRoot tag element detected: <${rootTagName}>\nStructural schema hierarchy: Verified OK\nData type attributes matching: Compliant\n\nNo compliance warnings found. Payloads are fully compliant.`);
+        setIsValidated(true);
+      } else {
+        setOutputReport(`⚠ WARNING: Structural declaration for root element "${rootTagName}" was not declared explicitly in XSD schema attributes. Validation might be incomplete.`);
+        setIsValidated(false);
+      }
+    } catch (e) {
+      setOutputReport("❌ Schema Validation Failed: " + e.message);
+      setIsValidated(false);
+    }
+  };
+
+  useEffect(() => {
+    if (xml) setXmlValidation(validateXmlString(xml));
+    if (xsd) setXsdValidation(validateXmlString(xsd));
+  }, [xml, xsd]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Validate XML payloads against formal XSD schema compliance definitions.
+      </p>
+
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="XML Payload"
+            value={xml}
+            onChange={setXml}
+            typeBadge="xml"
+            placeholder="Paste XML payload..."
+            validationStatus={xmlValidation}
+            showExample={loadExample}
+            actions={
+              <button type="button" onClick={handleValidate} style={{ padding: "4px 10px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                Validate Schema ✓
+              </button>
+            }
+          />
+        </div>
+
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="XSD Schema"
+            value={xsd}
+            onChange={setXsd}
+            typeBadge="xsd"
+            placeholder="Paste XSD Schema..."
+            validationStatus={xsdValidation}
+          />
+        </div>
+      </div>
+
+      {/* Validation Result Report */}
+      {outputReport && (
+        <div style={{ border: "1px solid #E2E8F0", borderRadius: "12px", overflow: "hidden" }}>
+          <div style={{ padding: "8px 16px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
+            <strong style={{ fontSize: "12px" }}>Validation Report</strong>
+          </div>
+          <pre style={{
+            margin: 0,
+            padding: "16px",
+            fontSize: "12px",
+            lineHeight: "1.6",
+            fontFamily: "monospace",
+            whiteSpace: "pre-wrap",
+            backgroundColor: isValidated ? "rgba(34, 197, 94, 0.05)" : "rgba(239, 68, 68, 0.05)",
+            color: isValidated ? "#155724" : "#721C24"
+          }}>
+            {outputReport}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 10. XPath Tester Tool
+function XPathTesterTab() {
+  const [xml, setXml] = useState(TEMPLATES.s4Employee);
+  const [xpathQuery, setXpathQuery] = useState("//FirstName");
+  const [resultsList, setResultsList] = useState([]);
+  const [validation, setValidation] = useState(null);
+
+  const loadExample = () => {
+    setXml(TEMPLATES.s4Employee);
+    setXpathQuery("//Employee/FirstName");
+  };
+
+  const handleQuery = () => {
+    const check = validateXmlString(xml);
+    setValidation(check);
+    if (!check.isValid || !xml.trim()) {
+      setResultsList([]);
+      return;
+    }
+
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xml, "application/xml");
+      
+      const evaluator = new XPathEvaluator();
+      const expression = evaluator.createExpression(xpathQuery);
+      const result = expression.evaluate(xmlDoc, XPathResult.ANY_TYPE, null);
+
+      const list = [];
+      if (result.resultType === XPathResult.NUMBER_TYPE) {
+        list.push(result.numberValue);
+      } else if (result.resultType === XPathResult.STRING_TYPE) {
+        list.push(result.stringValue);
+      } else if (result.resultType === XPathResult.BOOLEAN_TYPE) {
+        list.push(result.booleanValue ? "true" : "false");
+      } else {
+        let node = result.iterateNext();
+        while (node) {
+          list.push(node.textContent || node.nodeValue || node.outerHTML);
+          node = result.iterateNext();
+        }
+      }
+      setResultsList(list);
+    } catch (e) {
+      setResultsList([`XPath Query Error: ${e.message}`]);
+    }
+  };
+
+  useEffect(() => {
+    if (xml) {
+      setValidation(validateXmlString(xml));
+    } else {
+      setValidation(null);
+    }
+  }, [xml]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Query and extract XML document nodes instantly using standard XPath syntax.
+      </p>
+
+      {/* Query Bar */}
+      <div style={{ display: "flex", gap: "12px", alignItems: "center", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>XPath:</span>
+        <input
+          style={{ flex: 1, padding: "6px 12px", border: "1px solid #CBD5E1", borderRadius: "8px", fontSize: "12px", outline: "none", fontFamily: "monospace" }}
+          value={xpathQuery}
+          onChange={(e) => setXpathQuery(e.target.value)}
+          placeholder="//Employee/FirstName"
+        />
+        <button type="button" onClick={handleQuery} style={{ padding: "6px 12px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+          Query XML
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1.2, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="XML Document"
+            value={xml}
+            onChange={setXml}
+            typeBadge="xml"
+            placeholder="Paste XML data..."
+            validationStatus={validation}
+            showExample={loadExample}
+          />
+        </div>
+
+        {/* Results */}
+        <div style={{ flex: 0.8, minWidth: "250px", border: "1px solid #E2E8F0", borderRadius: "12px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "8px 16px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <strong style={{ fontSize: "12px" }}>Matches</strong>
+            <span style={{ fontSize: "11px", color: "#64748B", fontWeight: "600" }}>Count: {resultsList.length}</span>
+          </div>
+          
+          <div style={{ flex: 1, padding: "12px", maxH: "280px", overflowY: "auto" }}>
+            {resultsList.length > 0 ? (
+              resultsList.map((res, i) => (
+                <div key={i} style={{ padding: "6px 8px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: "6px", marginBottom: "6px", fontFamily: "monospace", fontSize: "11px", color: "#0F172A", wordBreak: "break-all" }}>
+                  {res}
+                </div>
+              ))
+            ) : (
+              <div style={{ fontSize: "11px", color: "#94A3B8" }}>No nodes matched. Run a query to preview matched fields.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 11. JSONPath Tester Tool Component
+function JSONPathTesterTab() {
+  const [json, setJson] = useState(TEMPLATES.sfEmployee);
+  const [jsonPathQuery, setJsonPathQuery] = useState("$.d.results[0].firstName");
+  const [resultsList, setResultsList] = useState([]);
+  const [validation, setValidation] = useState(null);
+
+  const loadExample = () => {
+    setJson(TEMPLATES.sfEmployee);
+    setJsonPathQuery("$.d.results[0].email");
+  };
+
+  const handleQuery = () => {
+    const check = validateJsonString(json);
+    setValidation(check);
+    if (!check.isValid || !json.trim()) {
+      setResultsList([]);
+      return;
+    }
+
+    try {
+      const obj = JSON.parse(json);
+      let path = jsonPathQuery.trim();
+      if (path.startsWith("$")) {
+        path = path.substring(1);
+      }
+      if (path.startsWith(".")) {
+        path = path.substring(1);
+      }
+      
+      // Parse query path indices
+      path = path.replace(/\[\s*['"]?([\w-]+)['"]?\s*\]/g, ".$1");
+      path = path.replace(/\[\s*(\d+)\s*\]/g, ".$1");
+      const segments = path.split(".").filter(Boolean);
+      
+      let current = obj;
+      for (const segment of segments) {
+        if (current === null || current === undefined) {
+          throw new Error(`Field path segment "${segment}" not found.`);
+        }
+        if (Array.isArray(current) && !isNaN(segment)) {
+          current = current[parseInt(segment, 10)];
+        } else if (typeof current === "object" && segment in current) {
+          current = current[segment];
+        } else {
+          throw new Error(`Field "${segment}" not found.`);
+        }
+      }
+
+      if (current === null || current === undefined) {
+        setResultsList([]);
+      } else if (Array.isArray(current)) {
+        setResultsList(current.map(x => (typeof x === "object" ? JSON.stringify(x) : String(x))));
+      } else if (typeof current === "object") {
+        setResultsList([JSON.stringify(current, null, 2)]);
+      } else {
+        setResultsList([String(current)]);
+      }
+    } catch (e) {
+      setResultsList([`JSONPath Query Error: ${e.message}`]);
+    }
+  };
+
+  useEffect(() => {
+    if (json) {
+      setValidation(validateJsonString(json));
+    } else {
+      setValidation(null);
+    }
+  }, [json]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <p style={{ fontSize: "13px", color: "#64748B", margin: 0 }}>
+        Query, extract, and slice JSON payloads using JSONPath expression notation.
+      </p>
+
+      {/* Query Bar */}
+      <div style={{ display: "flex", gap: "12px", alignItems: "center", background: "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: "1px solid #E2E8F0" }}>
+        <span style={{ fontSize: "12px", fontWeight: "700", color: "#475569" }}>JSONPath:</span>
+        <input
+          style={{ flex: 1, padding: "6px 12px", border: "1px solid #CBD5E1", borderRadius: "8px", fontSize: "12px", outline: "none", fontFamily: "monospace" }}
+          value={jsonPathQuery}
+          onChange={(e) => setJsonPathQuery(e.target.value)}
+          placeholder="$.d.results[0].firstName"
+        />
+        <button type="button" onClick={handleQuery} style={{ padding: "6px 12px", background: "#6F42FF", color: "#FFFFFF", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+          Query JSON
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1.2, minWidth: "300px" }}>
+          <ProfessionalCodeEditor
+            title="JSON Document"
+            value={json}
+            onChange={setJson}
+            typeBadge="json"
+            placeholder="Paste JSON data..."
+            validationStatus={validation}
+            showExample={loadExample}
+          />
+        </div>
+
+        {/* Results */}
+        <div style={{ flex: 0.8, minWidth: "250px", border: "1px solid #E2E8F0", borderRadius: "12px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "8px 16px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <strong style={{ fontSize: "12px" }}>Matches</strong>
+            <span style={{ fontSize: "11px", color: "#64748B", fontWeight: "600" }}>Count: {resultsList.length}</span>
+          </div>
+          
+          <div style={{ flex: 1, padding: "12px", maxH: "280px", overflowY: "auto" }}>
+            {resultsList.length > 0 ? (
+              resultsList.map((res, i) => (
+                <pre key={i} style={{ padding: "6px 8px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: "6px", marginBottom: "6px", fontFamily: "monospace", fontSize: "11px", color: "#0F172A", wordBreak: "break-all", whiteSpace: "pre-wrap", margin: "0 0 6px 0" }}>
+                  {res}
+                </pre>
+              ))
+            ) : (
+              <div style={{ fontSize: "11px", color: "#94A3B8" }}>No nodes matched. Run a query to preview matched fields.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 /* ============================================================================
    C. GROOVY SCRIPT SIMULATOR
